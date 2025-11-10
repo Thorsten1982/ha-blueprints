@@ -1,6 +1,7 @@
 blueprint:
   name: Dynamische Lüftung (AH-basiert, Optimiert)
-  domain: automation
+  domain: automation
+
   input:
     temp_inside:
       name: Sensor Innen-Temperatur
@@ -213,10 +214,10 @@ action:
       value_template: >
         {{ ventilation_needed_to_open
            and not helper_is_on
-           and window_is_closed # Fenster ist geschlossen
-           and is_someone_home  # Jemand ist zu Hause
-           and is_active_time   # Nicht während der Ruhezeit
-           and is_not_too_cold  # Nicht zu kalt draußen
+           and window_is_closed 
+           and is_someone_home 
+           and is_active_time  
+           and is_not_too_cold  
         }}
     sequence:
     - service: input_boolean.turn_on
@@ -281,6 +282,7 @@ action:
               type: announce
 
 mode: single
+
 
 
 
