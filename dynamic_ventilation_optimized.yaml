@@ -4,6 +4,7 @@ blueprint:
     (Hysterese). Berücksichtigt Fensterstatus, Anwesenheit, Ruhezeiten und Außentemperatur.
 
     '
+  version: 'v1.0'  # <--- HIER IST DIE NEUE VERSION
   domain: automation
   input:
     temp_inside:
@@ -283,4 +284,5 @@ action:
             message: '{{ message_close }}'
             data:
               type: announce
+
 mode: single
