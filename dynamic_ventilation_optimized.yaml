@@ -4,8 +4,7 @@ blueprint:
     (Hysterese). Berücksichtigt Fensterstatus, Anwesenheit, Ruhezeiten und Außentemperatur.
 
     '
-  domain: automation
-version: 'v1.0'
+  domain: automation
   input:
     temp_inside:
       name: Sensor Innen-Temperatur
