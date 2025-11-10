@@ -1,0 +1,286 @@
+blueprint:
+  name: Dynamische Lüftung (AH-basiert, Optimiert)
+  description: 'Empfiehlt das Lüften, wenn die AH-Differenz einen Schwellenwert überschreitet
+    (Hysterese). Berücksichtigt Fensterstatus, Anwesenheit, Ruhezeiten und Außentemperatur.
+
+    '
+  domain: automation
+  input:
+    temp_inside:
+      name: Sensor Innen-Temperatur
+      selector:
+        entity:
+          domain:
+          - sensor
+          multiple: false
+    rh_inside:
+      name: Sensor Innen-Luftfeuchtigkeit
+      selector:
+        entity:
+          domain:
+          - sensor
+          multiple: false
+    temp_outside:
+      name: Sensor Außen-Temperatur
+      selector:
+        entity:
+          domain:
+          - sensor
+          multiple: false
+    rh_outside:
+      name: Sensor Außen-Luftfeuchtigkeit
+      selector:
+        entity:
+          domain:
+          - sensor
+          multiple: false
+    state_helper:
+      name: Helfer-Toggle (input_boolean)
+      description: Erstellen Sie einen input_boolean-Helfer und wählen Sie ihn hier aus, um den Lüftungszustand zu verfolgen.
+      selector:
+        entity:
+          domain:
+          - input_boolean
+          multiple: false
+    notify_push:
+      name: Push-Benachrichtigungsdienst (z.B. notify.mobile_app_your_phone)
+      selector:
+        text:
+          multiple: false
+          multiline: false
+    notify_tts:
+      name: (Optional) TTS-Dienst (z.B. notify.alexa_media_kitchen)
+      default: ''
+      selector:
+        text:
+          multiple: false
+          multiline: false
+    room_name:
+      name: Raumname (für Nachrichten)
+      selector:
+        text:
+          multiple: false
+          multiline: false
+          
+    # ANFORDERUNG 1: Hysterese-Schwellenwerte
+    threshold:
+      name: Schwellenwert AH-Differenz (ÖFFNEN)
+      description: Lüften empfohlen, wenn die AH-Differenz (Innen-Außen) diesen Wert überschreitet.
+      default: 3.0
+      selector:
+        number:
+          min: 0.5
+          max: 10.0
+          step: 0.1
+          unit_of_measurement: g/m³
+          mode: slider
+          
+    close_threshold:
+      name: Schwellenwert AH-Differenz (SCHLIESSEN/Ziel)
+      description: Lüftungsziel erreicht, wenn die AH-Differenz (Innen-Außen) auf diesen Wert oder niedriger sinkt (muss niedriger sein als der Öffnen-Schwellenwert).
+      default: 1.0
+      selector:
+        number:
+          min: 0.1
+          max: 9.9
+          step: 0.1
+          unit_of_measurement: g/m³
+          mode: slider
+
+    # ANFORDERUNG 2: Fenster-Sensor
+    window_state_sensor:
+      name: Fenster-Sensor (Optional)
+      description: Binärer Sensor (z.B. 'on'/'off' oder 'open'/'closed'). Wird zur Vermeidung von unnötigen "Öffnen"-Meldungen verwendet.
+      default: ''
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: false
+          
+    # ANFORDERUNG 3: Anwesenheitsprüfung
+    presence_entity:
+      name: Anwesenheits-Entität (Optional)
+      description: Nur Benachrichtigung senden, wenn diese Entität 'on' oder 'home' ist (z.B. group.all_residents).
+      default: ''
+      selector:
+        entity:
+          multiple: false
+          
+    # ANFORDERUNG 4: Zeitbereichs-Prüfung
+    active_time_start:
+      name: Benachrichtigungszeitraum (Start HH:MM)
+      description: Ab dieser Uhrzeit sind "Öffnen"-Benachrichtigungen aktiv.
+      default: '07:00'
+      selector:
+        text:
+
+    active_time_end:
+      name: Benachrichtigungszeitraum (Ende HH:MM)
+      description: Bis zu dieser Uhrzeit sind "Öffnen"-Benachrichtigungen aktiv.
+      default: '22:00'
+      selector:
+        text:
+        
+    # ANFORDERUNG 5: Kälteschutz
+    min_temp_outside:
+      name: Mindest-Außentemperatur für Lüften (°C)
+      description: Verhindert "Öffnen"-Meldungen, wenn die Außentemperatur unter diesen Wert fällt (z.B. 3°C).
+      default: 3.0
+      selector:
+        number:
+          min: -20
+          max: 10
+          step: 0.1
+          unit_of_measurement: °C
+          mode: slider
+
+    # ANFORDERUNG 6: Klarere Nachrichten
+    message_ventilate:
+      name: Nachricht bei Lüftungsempfehlung
+      default: '{{ room_name }}: Hohe Feuchtigkeit! Stoßlüften ist notwendig.'
+    
+    message_close:
+      name: Nachricht bei Lüftungsziel erreicht
+      default: 'Lüftungsziel im {{ room_name }} erreicht. Fenster kann geschlossen werden.'
+
+# Ursprünglicher Trigger wird beibehalten
+trigger:
+- platform: time_pattern
+  minutes: /5
+  
+condition:
+- condition: template
+  value_template: '{{ have_valid_data }}'
+  
+variables:
+  temp_inside_entity: !input temp_inside
+  rh_inside_entity: !input rh_inside
+  temp_outside_entity: !input temp_outside
+  rh_outside_entity: !input rh_outside
+  state_helper_entity: !input state_helper
+  room_name: !input room_name
+  threshold: !input threshold
+  close_threshold: !input close_threshold # NEU
+  window_sensor_entity: !input window_state_sensor # NEU
+  presence_entity: !input presence_entity # NEU
+  active_time_start: !input active_time_start # NEU
+  active_time_end: !input active_time_end # NEU
+  min_temp_outside: !input min_temp_outside # NEU
+  notify_push: !input notify_push
+  notify_tts: !input notify_tts
+  message_ventilate: !input message_ventilate
+  message_close: !input message_close
+  have_valid_data: "{{\n  states(temp_inside_entity) not in ['unknown','unavailable','none','']\n    and states(temp_outside_entity) not in ['unknown','unavailable','none','']\n    and states(rh_inside_entity)    not in ['unknown','unavailable','none','']\n    and states(rh_outside_entity)  not in ['unknown','unavailable','none','']\n}}\n"
+  e_const: 2.718281828459045
+  t_in: '{{ states(temp_inside_entity)  | float(0) }}'
+  rh_in: '{{ states(rh_inside_entity)    | float(0) }}'
+  t_out: '{{ states(temp_outside_entity) | float(0) }}'
+  rh_out: '{{ states(rh_outside_entity)  | float(0) }}'
+  af_in: "{{\n  216.7\n  * ((rh_in / 100)\n      * (6.112 * (e_const ** ((17.62 * t_in)\n    / (243.12 + t_in)))))\n  / (273.15 + t_in)\n}}\n"
+  af_out: "{{\n  216.7\n  * ((rh_out / 100)\n      * (6.112 * (e_const ** ((17.62 * t_out)\n    / (243.12 + t_out)))))\n  / (273.15 + t_out)\n}}\n"
+  delta_af: '{{ af_in - af_out }}'
+  delta_rh: '{{ rh_in - rh_out }}'
+  
+  # Hysterese: Lüftung zum Öffnen notwendig (delta_af > threshold)
+  ventilation_needed_to_open: '{{ (delta_af | float(0)) > (threshold | float(0)) }}' # ANFORDERUNG 1
+  
+  # Hysterese: Luft ist OK zum Schließen (delta_af <= close_threshold)
+  air_is_ok_to_close: '{{ (delta_af | float(0)) <= (close_threshold | float(0)) }}' # ANFORDERUNG 1
+  
+  # Fenster Status: True, wenn Sensor nicht gesetzt ODER Sensor 'off'/'closed' ist
+  window_is_closed: > # ANFORDERUNG 2
+    {{ window_sensor_entity == '' or is_state(window_sensor_entity, 'off') or is_state(window_sensor_entity, 'closed') }}
+
+  # Anwesenheit: True, wenn Sensor nicht gesetzt ODER Sensor 'on'/'home' ist
+  is_someone_home: > # ANFORDERUNG 3
+    {{ presence_entity == '' or is_state(presence_entity, 'on') or is_state(presence_entity, 'home') }}
+    
+  # Zeitprüfung: True, wenn die aktuelle Zeit im definierten Fenster liegt
+  is_active_time: > # ANFORDERUNG 4
+    {% set current_time = now().time().strftime('%H:%M') %}
+    {{ current_time >= active_time_start and current_time < active_time_end }}
+    
+  # Kälteschutz: True, wenn Außentemperatur über dem Minimum liegt
+  is_not_too_cold: '{{ (t_out | float(-99)) >= (min_temp_outside | float(0)) }}' # ANFORDERUNG 5
+  
+  helper_is_on: '{{ is_state(state_helper_entity, ''on'') }}'
+  title_open: "\U0001FA9F Fenster öffnen — {{ room_name }}"
+  title_close: "\U0001FA9F Fenster schließen — {{ room_name }}"
+  tag_ventilate: '{{ ''ventilate_'' ~ room_name | lower | replace('' '', ''_'') }}'
+  tag_close: '{{ ''ventilate_close_'' ~ room_name | lower | replace('' '', ''_'')}}'
+
+action:
+- choose:
+  # AKTION 1: ÖFFNEN (Nur wenn alle Schutzbedingungen erfüllt sind)
+  - conditions:
+    - condition: template
+      value_template: >
+        {{ ventilation_needed_to_open
+           and not helper_is_on
+           and window_is_closed # Fenster ist geschlossen
+           and is_someone_home  # Jemand ist zu Hause
+           and is_active_time   # Nicht während der Ruhezeit
+           and is_not_too_cold  # Nicht zu kalt draußen
+        }}
+    sequence:
+    - service: input_boolean.turn_on
+      target:
+        entity_id: !input state_helper
+    - service: '{{ notify_push }}'
+      data:
+        title: '{{ title_open }}'
+        message: '{{ message_ventilate }}
+
+          Innen: {{ rh_in | round(0) }}%, {{ af_in | round(1) }} g/m³ — {{ t_in | round(1) }}°C
+
+          Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ t_out | round(1) }}°C
+
+          ΔAH = {{ delta_af | round(1) }} g/m³ (Öffnen bei {{ threshold | round(1) }})
+
+          '
+        data:
+          tag: '{{ tag_ventilate }}'
+    - choose:
+      - conditions:
+        - condition: template
+          value_template: '{{ (notify_tts | default('''')) | string != '''' }}'
+        sequence:
+        - service: '{{ notify_tts }}'
+          data:
+            message: '{{ message_ventilate }}'
+            data:
+              type: announce
+
+  # AKTION 2: SCHLIESSEN (Lüftungsziel erreicht)
+  - conditions:
+    - condition: template
+      value_template: '{{ air_is_ok_to_close and helper_is_on }}'
+    sequence:
+    - service: input_boolean.turn_off
+      target:
+        entity_id: !input state_helper
+    - service: '{{ notify_push }}'
+      data:
+        title: '{{ title_close }}'
+        message: '{{ message_close }}
+
+          Innen: {{ rh_in | round(0) }}%, {{ af_in | round(1) }} g/m³ — {{ t_in | round(1) }}°C
+
+          Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ t_out | round(1) }}°C
+
+          ΔAH = {{ delta_af | round(1) }} g/m³ (Ziel: {{ close_threshold | round(1) }})
+
+          '
+        data:
+          tag: '{{ tag_close }}'
+    - choose:
+      - conditions:
+        - condition: template
+          value_template: '{{ (notify_tts | default('''')) | string != '''' }}'
+        sequence:
+        - service: '{{ notify_tts }}'
+          data:
+            message: '{{ message_close }}'
+            data:
+              type: announce
+mode: single
