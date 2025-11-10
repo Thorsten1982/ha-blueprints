@@ -1,9 +1,7 @@
 blueprint:
   name: Dynamische Lüftung (AH-basiert, Optimiert)
   description: 'Empfiehlt das Lüften, wenn die AH-Differenz einen Schwellenwert überschreitet
-    (Hysterese). Berücksichtigt Fensterstatus, Anwesenheit, Ruhezeiten und Außentemperatur.
-
-    '
+    (Hysterese). Berücksichtigt Fensterstatus, Anwesenheit, Ruhezeiten und Außentemperatur. '
   domain: automation
   input:
     temp_inside:
