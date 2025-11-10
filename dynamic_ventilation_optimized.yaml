@@ -5,6 +5,7 @@ blueprint:
 
     '
   domain: automation
+ version: 'v1.0'
   input:
     temp_inside:
       name: Sensor Innen-Temperatur
@@ -285,4 +286,5 @@ action:
               type: announce
 
 mode: single
+
 
