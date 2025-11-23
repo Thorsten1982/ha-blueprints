@@ -1,6 +1,6 @@
 blueprint:
-  name: Präsenz-Licht mit Manuellem Override
-  description: |
+  name: Präsenz-Licht mit Manuellem Override (Fixed)
+  description: >
     Steuert ein Licht über einen Präsenzmelder. 
     Wird das Licht manuell eingeschaltet, bleibt es dauerhaft an (Override), 
     bis es manuell wieder ausgeschaltet wird.
@@ -8,106 +8,109 @@ blueprint:
   input:
     light_entity:
       name: Zu steuerndes Licht
-      description: Das Licht/der Schalter, das automatisch und manuell gesteuert wird.
       selector:
         entity:
           domain: [light, switch]
     presence_sensor:
       name: Präsenzmelder (PM)
-      description: Der binäre Sensor, der die An- oder Abwesenheit meldet.
       selector:
         entity:
           domain: binary_sensor
     no_presence_delay:
       name: Ausschalt-Verzögerung
-      description: Wie lange nach 'keiner Präsenz' soll das Licht ausgeschaltet werden?
-      default: '00:05:00'
+      description: Zeit nach der letzten Bewegung, bis ausgeschaltet wird.
+      default:
+        minutes: 5
       selector:
         duration:
     override_helper:
-      name: Override-Schalter (Input Boolean Helfer)
-      description: Ein dedizierter Helfer (Toggle) zur Speicherung des Override-Zustands. MUSS VORHER ERSTELLT WERDEN!
+      name: Override-Schalter (Input Boolean)
+      description: Muss ein existierender Helfer (Toggle) sein!
       selector:
         entity:
           domain: input_boolean
 
-mode: single
+mode: restart
 max_exceeded: silent
 
-variables:
-  licht_entitaet: !input light_entity
-  praesenz_melder: !input presence_sensor
-  override_schalter: !input override_helper
-  ausschalt_verzoegerung: !input no_presence_delay
-
 trigger:
-  # T1: Präsenz erkannt -> Licht AN (Basis-Funktion)
+  # T1: Präsenz erkannt
   - platform: state
-    entity_id: '[[ praesenz_melder ]]'
+    entity_id: !input presence_sensor
     from: 'off'
     to: 'on'
     id: 'praesenz_start'
 
-  # T2: Keine Präsenz mehr -> Ausschalten versuchen
+  # T2: Keine Präsenz mehr (mit Zeitverzögerung)
   - platform: state
-    entity_id: '[[ praesenz_melder ]]'
+    entity_id: !input presence_sensor
     from: 'on'
     to: 'off'
-    for: '[[ ausschalt_verzoegerung ]]'
+    for: !input no_presence_delay
     id: 'praesenz_ende'
 
-  # T3: Licht manuell eingeschaltet -> Override AN
+  # T3: Licht manuell AN
   - platform: state
-    entity_id: '[[ licht_entitaet ]]'
+    entity_id: !input light_entity
     from: 'off'
     to: 'on'
-    variables:
-      context_user_id: "{{ trigger.to_state.context.user_id }}"
-      context_parent_id: "{{ trigger.to_state.context.parent_id }}"
-    condition: "{{ (context_user_id is not none) or (context_parent_id is none and trigger.to_state.context.id is not none) }}"
     id: 'manuell_an'
 
-  # T4: Licht manuell ausgeschaltet -> Override AUS
+  # T4: Licht manuell AUS
   - platform: state
-    entity_id: '[[ licht_entitaet ]]'
+    entity_id: !input light_entity
     from: 'on'
     to: 'off'
-    variables:
-      context_user_id: "{{ trigger.to_state.context.user_id }}"
-      context_parent_id: "{{ trigger.to_state.context.parent_id }}"
-    condition: "{{ (context_user_id is not none) or (context_parent_id is none and trigger.to_state.context.id is not none) }}"
     id: 'manuell_aus'
 
-# HIER IST DER KORRIGIERTE ACTION-BLOCK
 action:
   - choose:
-    # 1. PRÄSENZ START (T1): Licht AN und Override-Zustand löschen
-    - conditions: "{{ trigger.id == 'praesenz_start' }}"
-      sequence:
-        - service: homeassistant.turn_on
-          entity_id: '[[ licht_entitaet ]]'
-        - service: input_boolean.turn_off 
-          entity_id: '[[ override_schalter ]]'
-          
-    # 2. PRÄSENZ ENDE (T2): Nur ausschalten, wenn KEIN Override aktiv ist
-    - conditions:
-        - condition: trigger
-          id: 'praesenz_ende'
-        - condition: state 
-          entity_id: '[[ override_schalter ]]'
-          state: 'off'
-      sequence:
-        - service: homeassistant.turn_off
-          entity_id: '[[ licht_entitaet ]]'
-          
-    # 3. MANUELL AN (T3): Override aktivieren
-    - conditions: "{{ trigger.id == 'manuell_an' }}"
-      sequence:
-        - service: input_boolean.turn_on
-          entity_id: '[[ override_schalter ]]'
-          
-    # 4. MANUELL AUS (T4): Override deaktivieren
-    - conditions: "{{ trigger.id == 'manuell_aus' }}"
-      sequence:
-        - service: input_boolean.turn_off
-          entity_id: '[[ override_schalter ]]'
+      # -------------------------------------------------------------
+      # Szenario 1: PM erkennt Bewegung -> Licht AN + Override AUS
+      # -------------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: 'praesenz_start'
+        sequence:
+          - service: homeassistant.turn_on
+            entity_id: !input light_entity
+          - service: input_boolean.turn_off
+            entity_id: !input override_helper
+
+      # -------------------------------------------------------------
+      # Szenario 2: Keine Bewegung mehr -> Licht AUS (Nur wenn Override AUS ist)
+      # -------------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: 'praesenz_ende'
+          - condition: state
+            entity_id: !input override_helper
+            state: 'off'
+        sequence:
+          - service: homeassistant.turn_off
+            entity_id: !input light_entity
+
+      # -------------------------------------------------------------
+      # Szenario 3: Licht Manuell eingeschaltet -> Override AN
+      # WICHTIG: Wir prüfen den Kontext, um Endlosschleifen zu vermeiden
+      # -------------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: 'manuell_an'
+          - condition: template
+            value_template: "{{ trigger.to_state.context.parent_id is none or (trigger.to_state.context.user_id is not none) }}"
+        sequence:
+          - service: input_boolean.turn_on
+            entity_id: !input override_helper
+
+      # -------------------------------------------------------------
+      # Szenario 4: Licht Manuell ausgeschaltet -> Override AUS
+      # -------------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: 'manuell_aus'
+          - condition: template
+            value_template: "{{ trigger.to_state.context.parent_id is none or (trigger.to_state.context.user_id is not none) }}"
+        sequence:
+          - service: input_boolean.turn_off
+            entity_id: !input override_helper
