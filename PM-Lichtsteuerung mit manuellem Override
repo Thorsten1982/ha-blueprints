@@ -1,10 +1,10 @@
 blueprint:
-  name: PM-Licht mit Manuellem Override (Zeit-Logik)
+  name: PM-Licht mit Manuellem Override (2s-Stabil)
   description: |
     Steuert ein Licht über einen Präsenzmelder.
     - Erkennt Bewegung -> Führt die gewählte 'Einschalt-Aktion' aus.
     - Manuell eingeschaltet -> Bleibt dauerhaft AN (Override), bis manuell ausgeschaltet.
-    (Nutzt Zeit-Logik zur stabilen Unterscheidung zwischen PM und Taster)
+    (Nutzt 2-Sekunden-Zeitfenster zur Abwehr von Selbstauslösung)
   domain: automation
   input:
     light_entity:
@@ -97,7 +97,7 @@ action:
       - conditions:
           - condition: trigger
             id: 'praesenz_ende'
-          # Wichtige Bedingung: Schaltet nur aus, wenn der Helfer AUS ist
+          # Schaltet nur aus, wenn der Helfer AUS ist
           - condition: state
             entity_id: !input override_helper
             state: 'off'
@@ -106,23 +106,25 @@ action:
             entity_id: !input light_entity
 
       # -------------------------------------------------------------
-      # 3. MANUELL AN (T3) 👆
-      # Die 5-Sekunden-Prüfung:
+      # 3. MANUELL AN (T3) 👆 - 2-Sekunden-Puffer
       # -------------------------------------------------------------
       - conditions:
           - condition: trigger
             id: 'manuell_an'
+          # Der Override wird NUR DANN NICHT gesetzt, wenn:
+          # (PM ist AN) UND (PM-Statusänderung war vor < 2 Sekunden)
+          # -> Alles außerhalb dieses kurzen Fensters gilt als Manuell!
           - condition: template
             value_template: >
               {{ 
                 not (
                   is_state(praesenz_melder, 'on') 
                   and 
-                  (as_timestamp(now()) - as_timestamp(states[praesenz_melder].last_changed) < 5) 
+                  (as_timestamp(now()) - as_timestamp(states[praesenz_melder].last_changed) < 2) 
                 ) 
               }}
         sequence:
-          # Aktiviert den Override, um die Ausschalt-Automatik zu blockieren
+          # Aktiviert den Override
           - service: input_boolean.turn_on
             entity_id: !input override_helper
 
@@ -133,6 +135,6 @@ action:
           - condition: trigger
             id: 'manuell_aus'
         sequence:
-          # Setzt den Override zurück (beendet den manuellen Modus)
+          # Setzt den Override zurück
           - service: input_boolean.turn_off
             entity_id: !input override_helper
