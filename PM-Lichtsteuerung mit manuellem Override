@@ -1,10 +1,10 @@
 blueprint:
-  name: PM-Licht mit Manuellem Override (2s-Stabil)
+  name: PM-Licht mit Manuellem Override (Final V6)
   description: |
     Steuert ein Licht über einen Präsenzmelder.
     - Erkennt Bewegung -> Führt die gewählte 'Einschalt-Aktion' aus.
     - Manuell eingeschaltet -> Bleibt dauerhaft AN (Override), bis manuell ausgeschaltet.
-    (Nutzt 2-Sekunden-Zeitfenster zur Abwehr von Selbstauslösung)
+    (Nutzt Automatisierungs-Zustand zur Unterscheidung zwischen PM und Taster)
   domain: automation
   input:
     light_entity:
@@ -106,22 +106,19 @@ action:
             entity_id: !input light_entity
 
       # -------------------------------------------------------------
-      # 3. MANUELL AN (T3) 👆 - 2-Sekunden-Puffer
+      # 3. MANUELL AN (T3) 👆 - FINALER CHECK
       # -------------------------------------------------------------
       - conditions:
           - condition: trigger
             id: 'manuell_an'
-          # Der Override wird NUR DANN NICHT gesetzt, wenn:
-          # (PM ist AN) UND (PM-Statusänderung war vor < 2 Sekunden)
-          # -> Alles außerhalb dieses kurzen Fensters gilt als Manuell!
+          # Prüft, ob die Automatisierung LÄNGER als 0.5s VOR der Licht-Änderung getriggert wurde (oder nie).
+          # Wenn die Differenz > 0.5s ist, war es eine manuelle Aktion.
+          # Die Automatisierungs-ID (automation.bw_sc_babybauch_thorsten_licht) ist eingesetzt.
           - condition: template
             value_template: >
-              {{ 
-                not (
-                  is_state(praesenz_melder, 'on') 
-                  and 
-                  (as_timestamp(now()) - as_timestamp(states[praesenz_melder].last_changed) < 2) 
-                ) 
+              {{
+                as_timestamp(states[licht_entitaet].last_changed) - 
+                as_timestamp(state_attr('automation.bw_sc_babybauch_thorsten_licht', 'last_triggered')) > 0.5
               }}
         sequence:
           # Aktiviert den Override
