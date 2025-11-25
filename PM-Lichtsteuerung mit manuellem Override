@@ -1,10 +1,10 @@
 blueprint:
-  name: PM-Licht mit Manuellem Override (Final V9)
+  name: PM-Licht mit Manuellem Override (Final V9.2)
   description: |
     Steuert ein Licht über einen Präsenzmelder.
     - Erkennt Bewegung -> Führt die gewählte 'Einschalt-Aktion' aus.
     - Manuell eingeschaltet (App ODER Taster) -> Bleibt AN (Override).
-    (Nutzt kombinierten User-ID und Zeit-Check zur Unterscheidung)
+    (Nutzt kombinierten User-ID und dynamischen Zeit-Check zur Unterscheidung)
   domain: automation
   input:
     light_entity:
@@ -106,22 +106,19 @@ action:
             entity_id: !input light_entity
 
       # -------------------------------------------------------------
-      # 3. MANUELL AN (T3) 👆 - ENDGÜLTIGER KOMBINIERTER CHECK
+      # 3. MANUELL AN (T3) 👆 - ENDGÜLTIGER KOMBINIERTER CHECK (KORRIGIERT)
       # -------------------------------------------------------------
       - conditions:
           - condition: trigger
             id: 'manuell_an'
-          # Prüft auf App ODER Taster. Wenn eine Bedingung zutrifft, ist es Manuell.
+          # Prüft auf App (user_id) ODER Taster (5s Puffer).
           - condition: template
             value_template: >
               {{ 
-                # Bedingung 1: App/Frontend (stabilster Check für App)
                 trigger.to_state.context.user_id is not none or
-                
-                # Bedingung 2: Taster/Hardware (mit großem Puffer für Stabilität)
                 (
-                  state_attr('automation.bw_sc_babybauch_thorsten_licht', 'last_triggered') is none or 
-                  as_timestamp(states[licht_entitaet].last_changed) - as_timestamp(state_attr('automation.bw_sc_babybauch_thorsten_licht', 'last_triggered')) > 5.0
+                  state_attr(this.entity_id, 'last_triggered') is none or 
+                  as_timestamp(states[licht_entitaet].last_changed) - as_timestamp(state_attr(this.entity_id, 'last_triggered')) > 5.0
                 )
               }}
         sequence:
