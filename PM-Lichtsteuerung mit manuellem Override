@@ -1,10 +1,10 @@
 blueprint:
-  name: PM-Licht mit Manuellem Override (Final V6)
+  name: PM-Licht mit Manuellem Override (Final V9)
   description: |
     Steuert ein Licht über einen Präsenzmelder.
     - Erkennt Bewegung -> Führt die gewählte 'Einschalt-Aktion' aus.
-    - Manuell eingeschaltet -> Bleibt dauerhaft AN (Override), bis manuell ausgeschaltet.
-    (Nutzt Automatisierungs-Zustand zur Unterscheidung zwischen PM und Taster)
+    - Manuell eingeschaltet (App ODER Taster) -> Bleibt AN (Override).
+    (Nutzt kombinierten User-ID und Zeit-Check zur Unterscheidung)
   domain: automation
   input:
     light_entity:
@@ -83,7 +83,7 @@ action:
           - condition: trigger
             id: 'praesenz_start'
         sequence:
-          # Führt die gewünschte Einschalt-Aktion (Helligkeit/Szene) aus
+          # Führt die gewünschte Einschalt-Aktion aus
           - choose:
             - conditions: "{{ true }}"
               sequence: !input turn_on_action
@@ -106,19 +106,23 @@ action:
             entity_id: !input light_entity
 
       # -------------------------------------------------------------
-      # 3. MANUELL AN (T3) 👆 - FINALER CHECK
+      # 3. MANUELL AN (T3) 👆 - ENDGÜLTIGER KOMBINIERTER CHECK
       # -------------------------------------------------------------
       - conditions:
           - condition: trigger
             id: 'manuell_an'
-          # Prüft, ob die Automatisierung LÄNGER als 0.5s VOR der Licht-Änderung getriggert wurde (oder nie).
-          # Wenn die Differenz > 0.5s ist, war es eine manuelle Aktion.
-          # Die Automatisierungs-ID (automation.bw_sc_babybauch_thorsten_licht) ist eingesetzt.
+          # Prüft auf App ODER Taster. Wenn eine Bedingung zutrifft, ist es Manuell.
           - condition: template
             value_template: >
-              {{
-                as_timestamp(states[licht_entitaet].last_changed) - 
-                as_timestamp(state_attr('automation.bw_sc_babybauch_thorsten_licht', 'last_triggered')) > 0.5
+              {{ 
+                # Bedingung 1: App/Frontend (stabilster Check für App)
+                trigger.to_state.context.user_id is not none or
+                
+                # Bedingung 2: Taster/Hardware (mit großem Puffer für Stabilität)
+                (
+                  state_attr('automation.bw_sc_babybauch_thorsten_licht', 'last_triggered') is none or 
+                  as_timestamp(states[licht_entitaet].last_changed) - as_timestamp(state_attr('automation.bw_sc_babybauch_thorsten_licht', 'last_triggered')) > 5.0
+                )
               }}
         sequence:
           # Aktiviert den Override
