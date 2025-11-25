@@ -1,10 +1,10 @@
 blueprint:
-  name: PM-Licht mit Manuellem Override (Final V9.4)
+  name: PM-Licht mit Manuellem Override (Final V9.6)
   description: |
     Steuert ein Licht über einen Präsenzmelder.
     - Erkennt Bewegung -> Führt die gewählte 'Einschalt-Aktion' aus.
     - Manuell eingeschaltet (App ODER Taster) -> Bleibt AN (Override).
-    (Nutzt kombinierten User-ID und dynamischen Zeit-Check zur Unterscheidung)
+    (Modus: Queued zur Vermeidung von Race Conditions)
   domain: automation
   input:
     light_entity:
@@ -77,11 +77,59 @@ trigger:
 action:
   - choose:
       # -------------------------------------------------------------
-      # 1. PRÄSENZ START (T1) 🟢
+      # 1. PRÄSENZ START (T1) 🟢 - FIX FÜR 'choose: null'
       # -------------------------------------------------------------
       - conditions:
           - condition: trigger
             id: 'praesenz_start'
         sequence:
-          # Führt die gewünschte Einschalt-Aktion aus
-          - choose:
+          # Führt die gewünschte Einschalt-Aktion aus (Liste der Aktionen)
+          - alias: "Licht über PM einschalten"
+            sequence: !input turn_on_action
+          
+          # Kleine Verzögerung zur Stabilisierung und Vermeidung von T3-Konflikten
+          - delay: 
+              milliseconds: 100
+              
+          # Deaktiviert den Override, da das Licht nun automatisch läuft
+          - service: input_boolean.turn_off
+            entity_id: !input override_helper
+
+      # -------------------------------------------------------------
+      # 2. PRÄSENZ ENDE (T2) 🔴
+      # -------------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: 'praesenz_ende'
+          # Schaltet nur aus, wenn der Helfer AUS ist
+          - condition: state
+            entity_id: !input override_helper
+            state: 'off'
+        sequence:
+          - service: homeassistant.turn_off
+            entity_id: !input light_entity
+
+      # -------------------------------------------------------------
+      # 3. MANUELL AN (T3) 👆 - Syntax-korrigierter Check
+      # -------------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: 'manuell_an'
+          - condition: template
+            # Die gesamte Logik in einer Zeile (Syntax-Fix), prüft User-ID ODER Zeit.
+            value_template: "{{ trigger.to_state.context.user_id is not none or (state_attr(this.entity_id, 'last_triggered') is none or as_timestamp(states[licht_entitaet].last_changed) - as_timestamp(state_attr(this.entity_id, 'last_triggered')) > 5.0) }}"
+        sequence:
+          # Aktiviert den Override
+          - service: input_boolean.turn_on
+            entity_id: !input override_helper
+
+      # -------------------------------------------------------------
+      # 4. MANUELL AUS (T4) 💡
+      # -------------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: 'manuell_aus'
+        sequence:
+          # Setzt den Override zurück
+          - service: input_boolean.turn_off
+            entity_id: !input override_helper
