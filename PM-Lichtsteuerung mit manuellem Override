@@ -1,40 +1,39 @@
-blueprint:
-  name: PM-Licht mit Manuellem Override (Final V9.7)
-  description: |
-    Steuert ein Licht über einen Präsenzmelder.
-    - Erkennt Bewegung -> Führt die gewählte 'Einschalt-Aktion' aus.
-    - Manuell eingeschaltet (App ODER Taster) -> Bleibt AN (Override).
-    (Modus: Queued zur Vermeidung von Race Conditions)
-  domain: automation
-  input:
-    light_entity:
-      name: Zu überwachende Lampe (Licht/Schalter)
-      selector:
-        entity:
-          domain: [light, switch]
-    presence_sensor:
-      name: Präsenzmelder (PM)
-      selector:
-        entity:
-          domain: binary_sensor
-    no_presence_delay:
-      name: Ausschalt-Verzögerung
-      default:
-        minutes: 5
-      selector:
-        duration:
-    override_helper:
-      name: Override-Schalter (Input_Boolean Helfer)
-      description: Der Helfer, der anzeigt, ob manuell eingeschaltet wurde.
-      selector:
-        entity:
-          domain: input_boolean
-    turn_on_action:
-      name: Aktion bei Bewegung (Licht an / Szene)
-      description: Was soll passieren, wenn der PM auslöst?
-      default: []
-      selector:
-        action: {}
+name: PM-Licht mit Manuellem Override (Final V9.7 - FIX)
+description: |
+  Steuert ein Licht über einen Präsenzmelder.
+  - Erkennt Bewegung -> Führt die gewählte 'Einschalt-Aktion' aus.
+  - Manuell eingeschaltet (App ODER Taster) -> Bleibt AN (Override).
+  (Modus: Queued zur Vermeidung von Race Conditions)
+domain: automation
+input:
+  light_entity:
+    name: Zu überwachende Lampe (Licht/Schalter)
+    selector:
+      entity:
+        domain: [light, switch]
+  presence_sensor:
+    name: Präsenzmelder (PM)
+    selector:
+      entity:
+        domain: binary_sensor
+  no_presence_delay:
+    name: Ausschalt-Verzögerung
+    default:
+      minutes: 5
+    selector:
+      duration:
+  override_helper:
+    name: Override-Schalter (Input_Boolean Helfer)
+    description: Der Helfer, der anzeigt, ob manuell eingeschaltet wurde.
+    selector:
+      entity:
+        domain: input_boolean
+  turn_on_action:
+    name: Aktion bei Bewegung (Licht an / Szene)
+    description: Was soll passieren, wenn der PM auslöst?
+    default: []
+    selector:
+      action: {}
 
 mode: queued
 max_exceeded: silent
@@ -79,61 +78,59 @@ action:
       # -------------------------------------------------------------
       # 1. PRÄSENZ START (T1) 🟢 - PM Schaltet EIN
       # -------------------------------------------------------------
-      - conditions:
-          - condition: trigger
-            id: 'praesenz_start'
-          # WICHTIG: PM schaltet nur ein, wenn kein manueller Override aktiv ist.
-          - condition: state
-            entity_id: !input override_helper
-            state: 'off'
-        sequence:
-          # Führt die gewünschte Einschalt-Aktion aus
-          - alias: "Licht über PM einschalten"
-            sequence: !input turn_on_action
-          
-          # Der Override-Helfer bleibt auf AUS, da die Automatisierung nun die Kontrolle hat.
+    - conditions:
+        - condition: trigger
+          id: 'praesenz_start'
+        # WICHTIG: PM schaltet nur ein, wenn kein manueller Override aktiv ist.
+        - condition: state
+          entity_id: !input override_helper
+          state: 'off'
+      sequence:
+        # Führt die gewünschte Einschalt-Aktion aus
+        - alias: "Licht über PM einschalten"
+          sequence: !input turn_on_action
 
       # -------------------------------------------------------------
       # 2. PRÄSENZ ENDE (T2) 🔴 - PM Schaltet AUS
       # -------------------------------------------------------------
-      - conditions:
-          - condition: trigger
-            id: 'praesenz_ende'
-          # Schaltet nur aus, wenn der Helfer AUS ist.
-          - condition: state
-            entity_id: !input override_helper
-            state: 'off'
-        sequence:
-          - service: homeassistant.turn_off
-            entity_id: !input light_entity
+    - conditions:
+        - condition: trigger
+          id: 'praesenz_ende'
+        # Schaltet nur aus, wenn der Helfer AUS ist.
+        - condition: state
+          entity_id: !input override_helper
+          state: 'off'
+      sequence:
+        - service: homeassistant.turn_off
+          entity_id: !input light_entity
 
       # -------------------------------------------------------------
       # 3. MANUELL AN (T3) 👆 - Aktiviert den Override
       # -------------------------------------------------------------
-      - conditions:
-          - condition: trigger
-            id: 'manuell_an'
-          - condition: template
-            # Wenn per App/UI eingeschaltet ODER wenn die Automatisierung
-            # NICHT in den letzten 60 Sekunden gelaufen ist (um T4-Fehler zu vermeiden).
-            value_template: >
-              {{ 
-                trigger.to_state.context.user_id is not none or 
-                state_attr(this.entity_id, 'last_triggered') is none or 
-                (as_timestamp(now()) - as_timestamp(state_attr(this.entity_id, 'last_triggered'))) > 60.0 
-              }}
-        sequence:
-          # Aktiviert den Override
-          - service: input_boolean.turn_on
-            entity_id: !input override_helper
+    - conditions:
+        - condition: trigger
+          id: 'manuell_an'
+        - condition: template
+          # NEUE, ROBUSTERE PRÜFUNG: Wenn die Aktion manuell (App/UI) ausgelöst wurde ODER
+          # wenn es sich um einen externen Aufruf (z.B. physischer Schalter) handelt,
+          # der NICHT von einer anderen Home Assistant Automatisierung stammt.
+          value_template: >
+            {{
+              trigger.to_state.context.user_id is not none or
+              (trigger.to_state.context.id is not none and trigger.to_state.context.parent_id is none)
+            }}
+      sequence:
+        # Aktiviert den Override
+        - service: input_boolean.turn_on
+          entity_id: !input override_helper
 
       # -------------------------------------------------------------
       # 4. MANUELL AUS (T4) 💡 - Setzt Override zurück
       # -------------------------------------------------------------
-      - conditions:
-          - condition: trigger
-            id: 'manuell_aus'
-        sequence:
-          # Setzt den Override zurück
-          - service: input_boolean.turn_off
-            entity_id: !input override_helper
+    - conditions:
+        - condition: trigger
+          id: 'manuell_aus'
+      sequence:
+        # Setzt den Override zurück
+        - service: input_boolean.turn_off
+          entity_id: !input override_helper
