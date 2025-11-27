@@ -1,4 +1,4 @@
-name: PM-Licht mit Manuellem Override (Final V9.7 - FIX)
+name: PM-Licht mit Manuellem Override (Final V9.7 - Robust)
 description: |
   Steuert ein Licht über einen Präsenzmelder.
   - Erkennt Bewegung -> Führt die gewählte 'Einschalt-Aktion' aus.
@@ -89,6 +89,8 @@ action:
         # Führt die gewünschte Einschalt-Aktion aus
         - alias: "Licht über PM einschalten"
           sequence: !input turn_on_action
+        # NEU/OPTIONAL: Füge hier ein kurzes delay hinzu, falls T3 zu schnell auslöst
+        # - delay: "00:00:01" 
 
       # -------------------------------------------------------------
       # 2. PRÄSENZ ENDE (T2) 🔴 - PM Schaltet AUS
@@ -111,14 +113,20 @@ action:
         - condition: trigger
           id: 'manuell_an'
         - condition: template
-          # NEUE, ROBUSTERE PRÜFUNG: Wenn die Aktion manuell (App/UI) ausgelöst wurde ODER
-          # wenn es sich um einen externen Aufruf (z.B. physischer Schalter) handelt,
-          # der NICHT von einer anderen Home Assistant Automatisierung stammt.
           value_template: >
-            {{
-              trigger.to_state.context.user_id is not none or
-              (trigger.to_state.context.id is not none and trigger.to_state.context.parent_id is none)
-            }}
+            {% set trigger_ist_manuell = 
+                # 1. ECHT MANUELL: App/UI (user_id vorhanden) ODER Schalter/Dumb Event (kein parent_id)
+                (trigger.to_state.context.user_id is not none) or
+                (trigger.to_state.context.id is not none and trigger.to_state.context.parent_id is none)
+            %}
+            {% set ist_t1_selbstausloesung = 
+                # 2. KEIN USER (schließt App/UI aus) UND PM ist AN UND Override ist AUS 
+                # -> MUSS der PM-Einschalt-Teil dieser Automation gewesen sein
+                (trigger.to_state.context.user_id is none) and 
+                is_state(praesenz_melder, 'on') and 
+                is_state(override_schalter, 'off') 
+            %}
+            {{ trigger_ist_manuell and not ist_t1_selbstausloesung }}
       sequence:
         # Aktiviert den Override
         - service: input_boolean.turn_on
