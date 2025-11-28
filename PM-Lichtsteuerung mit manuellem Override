@@ -1,9 +1,11 @@
 blueprint:
-  name: PM-Lichtsteuerung mit manuellem Override 💡
-  description: Steuert ein Licht basierend auf dem Zustand eines Präsenzmelders, inklusive einer robusten manuellen Überschreibungsmöglichkeit (Override).
+  name: PM-Lichtsteuerung mit manuellem Override (mit Lux) 💡
+  description: |
+    Steuert ein Licht basierend auf dem Zustand eines Präsenzmelders, inklusive einer robusten
+    manuellen Überschreibungsmöglichkeit (Override) UND einer **Helligkeitsbedingung (Lux)**.
+    Das Licht wird nur bei Präsenz eingeschaltet, wenn der Lux-Wert unter einem Schwellenwert liegt.
+
   domain: automation
-  # Achtung: Pfad in Ihrem HA kann abweichen, wenn Sie das Blueprint umbenannt haben
-  # source_url: https://ihre-home-assistant-instanz/blueprints/Thorsten1982/PM-Lichtsteuerung-mit-manuellem-Override.yaml 
   
   input:
     light_entity:
@@ -12,6 +14,7 @@ blueprint:
       selector:
         entity:
           domain: light
+          
     presence_sensor:
       name: Präsenz-/Bewegungsmelder
       description: Die binary_sensor Entität, die die Anwesenheit meldet (z.B. binary_sensor.pm_bad).
@@ -19,12 +22,14 @@ blueprint:
         entity:
           domain: binary_sensor
           device_class: presence
+          
     override_helper:
       name: Override Helper (input_boolean)
       description: Ein input_boolean zur Speicherung des manuellen Override-Zustands (z.B. input_boolean.override_bad_licht).
       selector:
         entity:
           domain: input_boolean
+          
     no_presence_delay:
       name: Verzögerung bei Abwesenheit
       description: Wie lange das Licht nach Ende der Präsenz noch an bleiben soll.
@@ -32,6 +37,7 @@ blueprint:
         minutes: 1
       selector:
         duration:
+        
     turn_on_action:
       name: Aktion beim Einschalten
       description: Die genaue Aktion, um das Licht einzuschalten (z.B. mit Helligkeit/Farbe/Effekt).
@@ -41,7 +47,27 @@ blueprint:
           data:
             brightness_pct: 100
       selector:
-        action:
+        action: {}
+
+    # NEUE EINGABEN FÜR DIE LUX-STEUERUNG
+    lux_sensor:
+      name: Helligkeitssensor (Lux)
+      description: Der Sensor, der die Umgebungshelligkeit (Lux) misst (z.B. sensor.multi_sensor_illuminance).
+      selector:
+        entity:
+          domain: sensor
+          device_class: illuminance
+          multiple: false
+          
+    lux_threshold:
+      name: Lux-Schwellenwert (Licht AN)
+      description: Die Obergrenze in Lux. Das Licht wird nur eingeschaltet, wenn die Helligkeit UNTER diesem Wert liegt (z.B. 50 lx).
+      default: 50
+      selector:
+        number:
+          min: 0
+          max: 1000
+          unit_of_measurement: "lx"
 
 mode: restart
 
@@ -50,6 +76,9 @@ variables:
   praesenz_melder: !input presence_sensor
   override_schalter: !input override_helper
   einschalt_aktion: !input turn_on_action
+  # NEUE VARIABLEN
+  lux_entitaet: !input lux_sensor
+  lux_schwelle: !input lux_threshold
 
 trigger:
   # T0: PM wird AN -> Licht AN (wenn Override AUS)
@@ -84,57 +113,13 @@ action:
       - conditions:
           - condition: trigger
             id: 'pm_an'
+            
           - condition: state
             entity_id: !input override_helper
             state: 'off'
+            
           - condition: state
             entity_id: !input light_entity
             state: 'off'
-        sequence: !input turn_on_action
-
-      # 1. PM AUS (T1) 🔴 - Schaltet das Licht durch Abwesenheit aus
-      - conditions:
-          - condition: trigger
-            id: 'pm_aus'
-          - condition: state
-            entity_id: !input override_helper
-            state: 'off'
-        sequence:
-          - service: light.turn_off
-            target:
-              entity_id: !input light_entity
-
-      # 2. LICHT AUS (T2) 🔄 - Deaktiviert den Override (manuell oder durch PM)
-      - conditions:
-          - condition: trigger
-            id: 'licht_aus'
-          # Deaktiviert den Override, wenn das Licht AUS ist UND der Override noch AN ist.
-          - condition: state
-            entity_id: !input override_helper
-            state: 'on'
-        sequence:
-          - service: input_boolean.turn_off
-            target:
-              entity_id: !input override_helper
-
-      # 3. MANUELL AN (T3) 👆 - Aktiviert den Override
-      - conditions:
-          - condition: trigger
-            id: 'manuell_an'
-          - condition: template
-            value_template: >
-              {% set is_auto_on_by_t0 = 
-                  
-                  (trigger.to_state.context.user_id is none) and 
-                  is_state(praesenz_melder, 'on') and 
-                  is_state(override_schalter, 'off') 
-              %}
-              
-              
-              {{ not is_auto_on_by_t0 }}
-              
-        sequence:
-          # Aktiviert den Override
-          - service: input_boolean.turn_on
-            target:
-              entity_id: !input override_helper
+            
+          # NE
