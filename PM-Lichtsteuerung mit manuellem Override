@@ -4,7 +4,6 @@ blueprint:
     Steuert ein Licht basierend auf dem Zustand eines Präsenzmelders, inklusive einer robusten
     manuellen Überschreibungsmöglichkeit (Override) UND einer **Helligkeitsbedingung (Lux)**.
     Das Licht wird nur bei Präsenz eingeschaltet, wenn der Lux-Wert unter einem Schwellenwert liegt.
-
   domain: automation
   
   input:
@@ -49,7 +48,7 @@ blueprint:
       selector:
         action: {}
 
-    # NEUE EINGABEN FÜR DIE LUX-STEUERUNG
+    # NEU: Helligkeitssensor definieren
     lux_sensor:
       name: Helligkeitssensor (Lux)
       description: Der Sensor, der die Umgebungshelligkeit (Lux) misst (z.B. sensor.multi_sensor_illuminance).
@@ -59,6 +58,7 @@ blueprint:
           device_class: illuminance
           multiple: false
           
+    # NEU: Schwellenwert definieren
     lux_threshold:
       name: Lux-Schwellenwert (Licht AN)
       description: Die Obergrenze in Lux. Das Licht wird nur eingeschaltet, wenn die Helligkeit UNTER diesem Wert liegt (z.B. 50 lx).
@@ -122,7 +122,7 @@ action:
             entity_id: !input light_entity
             state: 'off'
             
-          # NEUE LUX-BEDINGUNG
+          # ✅ HIER IST DIE EINGEFÜGTE LUX-BEDINGUNG
           - condition: numeric_state
             entity_id: !input lux_sensor
             below: !input lux_threshold
