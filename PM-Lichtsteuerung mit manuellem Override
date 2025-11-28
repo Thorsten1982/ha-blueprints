@@ -1,9 +1,9 @@
 blueprint:
-  name: PM-Lichtsteuerung mit manuellem Override (Korrigiert) 💡
+  name: PM-Lichtsteuerung mit manuellem Override 💡
   description: Steuert ein Licht basierend auf dem Zustand eines Präsenzmelders, inklusive einer robusten manuellen Überschreibungsmöglichkeit (Override).
   domain: automation
   # Achtung: Pfad in Ihrem HA kann abweichen, wenn Sie das Blueprint umbenannt haben
-  source_url: https://ihre-home-assistant-instanz/blueprints/Thorsten1982/PM-Lichtsteuerung-mit-manuellem-Override.yaml 
+  # source_url: https://ihre-home-assistant-instanz/blueprints/Thorsten1982/PM-Lichtsteuerung-mit-manuellem-Override.yaml 
   
   input:
     light_entity:
@@ -109,35 +109,5 @@ action:
           - condition: trigger
             id: 'licht_aus'
           # Deaktiviert den Override, wenn das Licht AUS ist UND der Override noch AN ist.
-          # Dies fängt manuelle Ausschaltungen und das Ausschalten durch T1 ab.
           - condition: state
-            entity_id: !input override_helper
-            state: 'on'
-        sequence:
-          - service: input_boolean.turn_off
-            target:
-              entity_id: !input override_helper
-
-      # 3. MANUELL AN (T3) 👆 - Aktiviert den Override
-      - conditions:
-          - condition: trigger
-            id: 'manuell_an'
-          - condition: template
-            value_template: >
-              {% set ist_t0_selbstausloesung = 
-                  # Ist es die automatische Einschaltung durch T0 (Präsenz)?
-                  # Dies ist der Fall, wenn: KEIN USER (keine App/UI-Bedienung) UND
-                  # PM ist AN UND Override ist AUS (da der Override ja jetzt gesetzt werden soll).
-                  (trigger.to_state.context.user_id is none) and 
-                  is_state(praesenz_melder, 'on') and 
-                  is_state(override_schalter, 'off') 
-              %}
-              
-              # *** KORRIGIERTE LOGIK: Override wird gesetzt, wenn der Trigger NICHT die PM-Schaltung (T0) war. ***
-              {{ not ist_t0_selbstausloesung }}
-              
-        sequence:
-          # Aktiviert den Override
-          - service: input_boolean.turn_on
-            target:
-              entity_id: !input override_helper
+            entity_id: !input override_
