@@ -1,8 +1,8 @@
 blueprint:
-  name: PM-Lichtsteuerung mit manuellem Override (mit Lux) 💡
+  name: PM-Lichtsteuerung mit manuellem Override (Robust) 💡
   description: |
     Steuert ein Licht basierend auf dem Zustand eines Präsenzmelders, inklusive einer robusten
-    manuellen Überschreibungsmöglichkeit (Override) UND einer **Helligkeitsbedingung (Lux)**.
+    manuellen Überschreibungsmöglichkeit (Override) UND einer Helligkeitsbedingung (Lux).
     Das Licht wird nur bei Präsenz eingeschaltet, wenn der Lux-Wert unter einem Schwellenwert liegt.
   domain: automation
   
@@ -20,7 +20,7 @@ blueprint:
       selector:
         entity:
           domain: binary_sensor
-          
+          # Korrektur: device_class: presence entfernt, um UI-Fehler zu vermeiden
           
     override_helper:
       name: Override Helper (input_boolean)
@@ -48,17 +48,15 @@ blueprint:
       selector:
         action: {}
 
-    # NEU: Helligkeitssensor definieren
     lux_sensor:
       name: Helligkeitssensor (Lux)
-      description: Der Sensor, der die Umgebungshelligkeit (Lux) misst (z.B. sensor.multi_sensor_illuminance).
+      description: Der Sensor, der die Umgebungshelligkeit (Lux) misst.
       selector:
         entity:
           domain: sensor
-          device_class: illuminance
+          # Korrektur: device_class: illuminance entfernt, um UI-Fehler zu vermeiden
           multiple: false
           
-    # NEU: Schwellenwert definieren
     lux_threshold:
       name: Lux-Schwellenwert (Licht AN)
       description: Die Obergrenze in Lux. Das Licht wird nur eingeschaltet, wenn die Helligkeit UNTER diesem Wert liegt (z.B. 50 lx).
@@ -76,7 +74,6 @@ variables:
   praesenz_melder: !input presence_sensor
   override_schalter: !input override_helper
   einschalt_aktion: !input turn_on_action
-  # NEUE VARIABLEN
   lux_entitaet: !input lux_sensor
   lux_schwelle: !input lux_threshold
 
@@ -113,67 +110,58 @@ action:
       - conditions:
           - condition: trigger
             id: 'pm_an'
-            
           - condition: state
             entity_id: !input override_helper
             state: 'off'
-            
           - condition: state
             entity_id: !input light_entity
             state: 'off'
-            
-          # ✅ HIER IST DIE EINGEFÜGTE LUX-BEDINGUNG
           - condition: numeric_state
             entity_id: !input lux_sensor
             below: !input lux_threshold
-            
         sequence: !input turn_on_action
 
       # 1. PM AUS (T1) 🔴 - Schaltet das Licht durch Abwesenheit aus
       - conditions:
           - condition: trigger
             id: 'pm_aus'
-            
           - condition: state
             entity_id: !input override_helper
             state: 'off'
-            
         sequence:
           - service: light.turn_off
             target:
               entity_id: !input light_entity
 
-      # 2. LICHT AUS (T2) 🔄 - Deaktiviert den Override (manuell oder durch PM)
+      # 2. LICHT AUS (T2) 🔄 - Deaktiviert den Override (manuell oder durch T1)
       - conditions:
           - condition: trigger
             id: 'licht_aus'
-            
-          # Deaktiviert den Override, wenn das Licht AUS ist UND der Override noch AN ist.
           - condition: state
             entity_id: !input override_helper
             state: 'on'
-            
         sequence:
           - service: input_boolean.turn_off
             target:
               entity_id: !input override_helper
 
-      # 3. MANUELL AN (T3) 👆 - Aktiviert den Override
+      # 3. MANUELL AN (T3) 👆 - Aktiviert den Override (FINALE, ROBUSTE LOGIK)
       - conditions:
           - condition: trigger
             id: 'manuell_an'
-            
-          - condition: template
-            value_template: >
-              {% set is_auto_on_by_t0 = 
-                  (trigger.to_state.context.user_id is none) and 
-                  is_state(praesenz_melder, 'on') and 
-                  is_state(override_schalter, 'off') 
-              %}
-              
-              # Der Override soll nur aktiviert werden, wenn das Licht NICHT
-              # durch die Automatik (T0) eingeschaltet wurde.
-              {{ not is_auto_on_by_t0 }}
+          - condition: or # ODER-Verknüpfung: Wenn A oder B wahr ist, dann ist es manuell
+            conditions:
+              # Bedingung A: Geschaltet von einem Benutzer (UI/App/Sprachbefehl).
+              # Hat immer eine user_id.
+              - condition: template
+                value_template: >
+                  {{ trigger.to_state.context.user_id is not none }}
+                  
+              # Bedingung B: Geschaltet von einer anderen Entität ODER der Kontext ist NULL (Physischer Taster).
+              # Da der Context-Wert oft null ist, muss er UNGLEICH der eigenen Automatisierungs-ID sein (this.entity_id).
+              - condition: template
+                value_template: >
+                  {{ trigger.to_state.context.entity_id != this.entity_id }}
               
         sequence:
           # Aktiviert den Override
