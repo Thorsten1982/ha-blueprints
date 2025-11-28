@@ -122,4 +122,61 @@ action:
             entity_id: !input light_entity
             state: 'off'
             
-          # NE
+          # NEUE LUX-BEDINGUNG
+          - condition: numeric_state
+            entity_id: !input lux_sensor
+            below: !input lux_threshold
+            
+        sequence: !input turn_on_action
+
+      # 1. PM AUS (T1) 🔴 - Schaltet das Licht durch Abwesenheit aus
+      - conditions:
+          - condition: trigger
+            id: 'pm_aus'
+            
+          - condition: state
+            entity_id: !input override_helper
+            state: 'off'
+            
+        sequence:
+          - service: light.turn_off
+            target:
+              entity_id: !input light_entity
+
+      # 2. LICHT AUS (T2) 🔄 - Deaktiviert den Override (manuell oder durch PM)
+      - conditions:
+          - condition: trigger
+            id: 'licht_aus'
+            
+          # Deaktiviert den Override, wenn das Licht AUS ist UND der Override noch AN ist.
+          - condition: state
+            entity_id: !input override_helper
+            state: 'on'
+            
+        sequence:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input override_helper
+
+      # 3. MANUELL AN (T3) 👆 - Aktiviert den Override
+      - conditions:
+          - condition: trigger
+            id: 'manuell_an'
+            
+          - condition: template
+            value_template: >
+              {% set is_auto_on_by_t0 = 
+                  (trigger.to_state.context.user_id is none) and 
+                  is_state(praesenz_melder, 'on') and 
+                  is_state(override_schalter, 'off') 
+              %}
+              
+              # Der Override soll nur aktiviert werden, wenn das Licht NICHT
+              # durch die Automatik (T0) eingeschaltet wurde.
+              {{ not is_auto_on_by_t0 }}
+              
+        sequence:
+          # Aktiviert den Override
+          - service: input_boolean.turn_on
+            target:
+              entity_id: !input override_helper
