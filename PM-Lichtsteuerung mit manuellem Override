@@ -1,9 +1,8 @@
 blueprint:
-  name: PM-Lichtsteuerung mit manuellem Override (Robust) 💡
+  name: PM-Lichtsteuerung mit manuellem Override (Final) 💡
   description: |
     Steuert ein Licht basierend auf dem Zustand eines Präsenzmelders, inklusive einer robusten
-    manuellen Überschreibungsmöglichkeit (Override) UND einer Helligkeitsbedingung (Lux).
-    Das Licht wird nur bei Präsenz eingeschaltet, wenn der Lux-Wert unter einem Schwellenwert liegt.
+    manuellen Überschreibungsmöglichkeit (Override) und Helligkeitsbedingung (Lux).
   domain: automation
   
   input:
@@ -16,15 +15,14 @@ blueprint:
           
     presence_sensor:
       name: Präsenz-/Bewegungsmelder
-      description: Die binary_sensor Entität, die die Anwesenheit meldet (z.B. binary_sensor.pm_bad).
+      description: Die binary_sensor Entität, die die Anwesenheit meldet.
       selector:
         entity:
           domain: binary_sensor
-          # Korrektur: device_class: presence entfernt, um UI-Fehler zu vermeiden
           
     override_helper:
       name: Override Helper (input_boolean)
-      description: Ein input_boolean zur Speicherung des manuellen Override-Zustands (z.B. input_boolean.override_bad_licht).
+      description: Ein input_boolean zur Speicherung des manuellen Override-Zustands.
       selector:
         entity:
           domain: input_boolean
@@ -39,7 +37,7 @@ blueprint:
         
     turn_on_action:
       name: Aktion beim Einschalten
-      description: Die genaue Aktion, um das Licht einzuschalten (z.B. mit Helligkeit/Farbe/Effekt).
+      description: Die genaue Aktion, um das Licht einzuschalten.
       default:
         - service: light.turn_on
           target: !input light_entity
@@ -54,12 +52,11 @@ blueprint:
       selector:
         entity:
           domain: sensor
-          # Korrektur: device_class: illuminance entfernt, um UI-Fehler zu vermeiden
           multiple: false
           
     lux_threshold:
       name: Lux-Schwellenwert (Licht AN)
-      description: Die Obergrenze in Lux. Das Licht wird nur eingeschaltet, wenn die Helligkeit UNTER diesem Wert liegt (z.B. 50 lx).
+      description: Das Licht wird nur eingeschaltet, wenn die Helligkeit UNTER diesem Wert liegt (z.B. 50 lx).
       default: 50
       selector:
         number:
@@ -133,7 +130,7 @@ action:
             target:
               entity_id: !input light_entity
 
-      # 2. LICHT AUS (T2) 🔄 - Deaktiviert den Override (manuell oder durch T1)
+      # 2. LICHT AUS (T2) 🔄 - Deaktiviert den Override
       - conditions:
           - condition: trigger
             id: 'licht_aus'
@@ -145,26 +142,20 @@ action:
             target:
               entity_id: !input override_helper
 
-      # 3. MANUELL AN (T3) 👆 - Aktiviert den Override (FINALE, ROBUSTE LOGIK)
+      # 3. MANUELL AN (T3) 👆 - Aktiviert den Override (FINALSTE LOGIK)
       - conditions:
           - condition: trigger
             id: 'manuell_an'
-          - condition: or # ODER-Verknüpfung: Wenn A oder B wahr ist, dann ist es manuell
+          # Prüft, ob der Präsenzmelder NICHT AN war, als das Licht eingeschaltet wurde.
+          # Dies schließt T0 (die automatische Schaltung) aus.
+          - condition: not
             conditions:
-              # Bedingung A: Geschaltet von einem Benutzer (UI/App/Sprachbefehl).
-              # Hat immer eine user_id.
-              - condition: template
-                value_template: >
-                  {{ trigger.to_state.context.user_id is not none }}
-                  
-              # Bedingung B: Geschaltet von einer anderen Entität ODER der Kontext ist NULL (Physischer Taster).
-              # Da der Context-Wert oft null ist, muss er UNGLEICH der eigenen Automatisierungs-ID sein (this.entity_id).
-              - condition: template
-                value_template: >
-                  {{ trigger.to_state.context.entity_id != this.entity_id }}
+              - condition: state
+                entity_id: !input presence_sensor
+                state: 'on'
               
         sequence:
-          # Aktiviert den Override
+          # Override AN
           - service: input_boolean.turn_on
             target:
               entity_id: !input override_helper
