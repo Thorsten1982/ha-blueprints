@@ -20,7 +20,7 @@ blueprint:
       selector:
         entity:
           domain: binary_sensor
-          device_class: presence
+          
           
     override_helper:
       name: Override Helper (input_boolean)
