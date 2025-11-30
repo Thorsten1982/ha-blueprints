@@ -1,43 +1,35 @@
 blueprint:
-  name: PM-Lichtsteuerung mit manuellem Override (Final) 💡
+  name: PM-Lichtsteuerung mit manuellem Override (V10 - Zeit-Logik) 💡
   description: |
-    Steuert ein Licht basierend auf dem Zustand eines Präsenzmelders, inklusive einer robusten
-    manuellen Überschreibungsmöglichkeit (Override) und Helligkeitsbedingung (Lux).
+    Steuert ein Licht basierend auf Präsenz.
+    - Override-Erkennung basierend auf Zeit-Korrelation (verhindert Fehler bei fehlenden Context-IDs).
+    - Inklusive "Override Lock" (Taster drücken, wenn Licht schon an ist).
   domain: automation
   
   input:
     light_entity:
       name: Licht-Entität
-      description: Die Entität des Lichts, das gesteuert werden soll (z.B. light.bad_licht).
       selector:
         entity:
           domain: light
-          
     presence_sensor:
       name: Präsenz-/Bewegungsmelder
-      description: Die binary_sensor Entität, die die Anwesenheit meldet.
       selector:
         entity:
           domain: binary_sensor
-          
     override_helper:
       name: Override Helper (input_boolean)
-      description: Ein input_boolean zur Speicherung des manuellen Override-Zustands.
       selector:
         entity:
           domain: input_boolean
-          
     no_presence_delay:
       name: Verzögerung bei Abwesenheit
-      description: Wie lange das Licht nach Ende der Präsenz noch an bleiben soll.
       default:
         minutes: 1
       selector:
         duration:
-        
     turn_on_action:
       name: Aktion beim Einschalten
-      description: Die genaue Aktion, um das Licht einzuschalten.
       default:
         - service: light.turn_on
           target: !input light_entity
@@ -45,18 +37,13 @@ blueprint:
             brightness_pct: 100
       selector:
         action: {}
-
     lux_sensor:
       name: Helligkeitssensor (Lux)
-      description: Der Sensor, der die Umgebungshelligkeit (Lux) misst.
       selector:
         entity:
           domain: sensor
-          multiple: false
-          
     lux_threshold:
       name: Lux-Schwellenwert (Licht AN)
-      description: Das Licht wird nur eingeschaltet, wenn die Helligkeit UNTER diesem Wert liegt (z.B. 50 lx).
       default: 50
       selector:
         number:
@@ -70,46 +57,49 @@ variables:
   licht_entitaet: !input light_entity
   praesenz_melder: !input presence_sensor
   override_schalter: !input override_helper
-  einschalt_aktion: !input turn_on_action
   lux_entitaet: !input lux_sensor
   lux_schwelle: !input lux_threshold
 
 trigger:
-  # T0: PM wird AN -> Licht AN (wenn Override AUS)
+  # T0: PM wird AN (Automatik Start)
   - platform: state
     entity_id: !input presence_sensor
     to: 'on'
     id: 'pm_an'
 
-  # T1: PM wird AUS (nach Delay) -> Licht AUS (wenn Override AUS)
+  # T1: PM wird AUS (Automatik Ende)
   - platform: state
     entity_id: !input presence_sensor
     to: 'off'
     for: !input no_presence_delay
     id: 'pm_aus'
 
-  # T2: Licht wird AUS -> Override AUS
+  # T2: Licht wird AUS (Reset)
   - platform: state
     entity_id: !input light_entity
     to: 'off'
     id: 'licht_aus'
 
-  # T3: Licht wird AN -> Override AN (manuell)
+  # T3: Licht wird AN (Prüfung auf Override)
   - platform: state
     entity_id: !input light_entity
     from: 'off'
     to: 'on'
     id: 'manuell_an'
-    
-  # T4: Licht bleibt AN, aber Attribut-Update von externer Quelle (Override Lock)
+
+  # T4: Override Lock (Taster drücken während Licht schon AN ist)
+  # Feuert nur, wenn Licht bereits AN war und erneut AN befohlen wird
   - platform: state
     entity_id: !input light_entity
+    from: 'on'
     to: 'on'
-    id: 'manuell_lock' 
+    id: 'manuell_lock'
 
 action:
   - choose:
-      # 0. PM AN (T0) 🟢 - Schaltet das Licht durch Präsenz ein
+      # ----------------------------------------------------------------
+      # 0. PM AN (T0) -> Automatisches Einschalten
+      # ----------------------------------------------------------------
       - conditions:
           - condition: trigger
             id: 'pm_an'
@@ -124,7 +114,9 @@ action:
             below: !input lux_threshold
         sequence: !input turn_on_action
 
-      # 1. PM AUS (T1) 🔴 - Schaltet das Licht durch Abwesenheit aus
+      # ----------------------------------------------------------------
+      # 1. PM AUS (T1) -> Automatisches Ausschalten
+      # ----------------------------------------------------------------
       - conditions:
           - condition: trigger
             id: 'pm_aus'
@@ -136,7 +128,9 @@ action:
             target:
               entity_id: !input light_entity
 
-      # 2. LICHT AUS (T2) 🔄 - Deaktiviert den Override
+      # ----------------------------------------------------------------
+      # 2. LICHT AUS (T2) -> Override Reset
+      # ----------------------------------------------------------------
       - conditions:
           - condition: trigger
             id: 'licht_aus'
@@ -148,35 +142,38 @@ action:
             target:
               entity_id: !input override_helper
 
-      # 3. MANUELL AN/LOCK (T3 & T4) 👆 - Aktiviert den Override
+      # ----------------------------------------------------------------
+      # 3. MANUELL AN (T3) -> Override setzen (Zeit-Logik)
+      # ----------------------------------------------------------------
       - conditions:
-          - condition: or # Trigger muss T3 oder T4 sein
-            conditions:
-              # FALL A: Standard Override (T3)
-              - condition: and
-                conditions:
-                  - condition: trigger
-                    id: 'manuell_an'
-                  - condition: not # Nur setzen, wenn NICHT T0 es hätte sein können
-                    conditions:
-                      # Wir negieren die komplette Logik der Automatik (T0)
-                      - condition: state
-                        entity_id: !input presence_sensor
-                        state: 'on'
-                      - condition: state
-                        entity_id: !input override_helper
-                        state: 'off'
-                      - condition: numeric_state
-                        entity_id: !input lux_sensor
-                        below: !input lux_threshold
-
-              # FALL B: Override Lock (T4)
-              # Wenn das Licht schon AN ist und eine Aktualisierung durch manuelle Aktion erhält, ist es ein Override.
-              - condition: trigger
-                id: 'manuell_lock'
+          - condition: trigger
+            id: 'manuell_an'
+          - condition: template
+            value_template: >
+              {% set pm_last_changed = states[praesenz_melder].last_changed %}
+              {% set time_diff = (as_timestamp(now()) - as_timestamp(pm_last_changed)) %}
               
+              {# LOGIK: Wenn der PM seinen Status vor weniger als 3 Sekunden auf ON #}
+              {# geändert hat, war es sehr wahrscheinlich die Automatik (T0). #}
+              {# Wenn es länger her ist, muss es eine manuelle Schaltung sein. #}
+              
+              {{ 
+                 (trigger.to_state.context.user_id is not none) 
+                 or 
+                 (time_diff > 3)
+              }}
         sequence:
-          # Override AN
+          - service: input_boolean.turn_on
+            target:
+              entity_id: !input override_helper
+
+      # ----------------------------------------------------------------
+      # 4. OVERRIDE LOCK (T4) -> Nachdrücken
+      # ----------------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: 'manuell_lock'
+        sequence:
           - service: input_boolean.turn_on
             target:
               entity_id: !input override_helper
