@@ -100,6 +100,12 @@ trigger:
     from: 'off'
     to: 'on'
     id: 'manuell_an'
+    
+  # T4: Licht bleibt AN, aber Attribut-Update von externer Quelle (Override Lock)
+  - platform: state
+    entity_id: !input light_entity
+    to: 'on'
+    id: 'manuell_lock' 
 
 action:
   - choose:
@@ -142,17 +148,32 @@ action:
             target:
               entity_id: !input override_helper
 
-      # 3. MANUELL AN (T3) 👆 - Aktiviert den Override (FINALSTE LOGIK)
+      # 3. MANUELL AN/LOCK (T3 & T4) 👆 - Aktiviert den Override
       - conditions:
-          - condition: trigger
-            id: 'manuell_an'
-          # Prüft, ob der Präsenzmelder NICHT AN war, als das Licht eingeschaltet wurde.
-          # Dies schließt T0 (die automatische Schaltung) aus.
-          - condition: not
+          - condition: or # Trigger muss T3 oder T4 sein
             conditions:
-              - condition: state
-                entity_id: !input presence_sensor
-                state: 'on'
+              # FALL A: Standard Override (T3)
+              - condition: and
+                conditions:
+                  - condition: trigger
+                    id: 'manuell_an'
+                  - condition: not # Nur setzen, wenn NICHT T0 es hätte sein können
+                    conditions:
+                      # Wir negieren die komplette Logik der Automatik (T0)
+                      - condition: state
+                        entity_id: !input presence_sensor
+                        state: 'on'
+                      - condition: state
+                        entity_id: !input override_helper
+                        state: 'off'
+                      - condition: numeric_state
+                        entity_id: !input lux_sensor
+                        below: !input lux_threshold
+
+              # FALL B: Override Lock (T4)
+              # Wenn das Licht schon AN ist und eine Aktualisierung durch manuelle Aktion erhält, ist es ein Override.
+              - condition: trigger
+                id: 'manuell_lock'
               
         sequence:
           # Override AN
