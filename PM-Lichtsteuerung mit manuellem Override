@@ -1,27 +1,33 @@
 blueprint:
   name: PM-Lichtsteuerung mit manuellem Override (V10 - Zeit-Logik) 💡
-  description: |
+  description: >
     Steuert ein Licht basierend auf Präsenz.
     - Override-Erkennung basierend auf Zeit-Korrelation (verhindert Fehler bei fehlenden Context-IDs).
     - Inklusive "Override Lock" (Taster drücken, wenn Licht schon an ist).
+    
+    Basiert auf Community-Konzepten zur Taster- und Präsenzsteuerung mit manueller Sperre.
+  source_url: https://github.com/Thorsten1982/ha-blueprints/blob/main/pm_light_control.yaml
   domain: automation
-  
+
   input:
     light_entity:
       name: Licht-Entität
       selector:
         entity:
           domain: light
+          multiple: false
     presence_sensor:
       name: Präsenz-/Bewegungsmelder
       selector:
         entity:
           domain: binary_sensor
+          multiple: false
     override_helper:
       name: Override Helper (input_boolean)
       selector:
         entity:
           domain: input_boolean
+          multiple: false
     no_presence_delay:
       name: Verzögerung bei Abwesenheit
       default:
@@ -31,7 +37,7 @@ blueprint:
     turn_on_action:
       name: Aktion beim Einschalten
       default:
-        - service: light.turn_on
+        - action: light.turn_on
           target: !input light_entity
           data:
             brightness_pct: 100
@@ -42,6 +48,7 @@ blueprint:
       selector:
         entity:
           domain: sensor
+          multiple: false
     lux_threshold:
       name: Lux-Schwellenwert (Licht AN)
       default: 50
@@ -88,7 +95,6 @@ trigger:
     id: 'manuell_an'
 
   # T4: Override Lock (Taster drücken während Licht schon AN ist)
-  # Feuert nur, wenn Licht bereits AN war und erneut AN befohlen wird
   - platform: state
     entity_id: !input light_entity
     from: 'on'
@@ -100,80 +106,4 @@ action:
       # ----------------------------------------------------------------
       # 0. PM AN (T0) -> Automatisches Einschalten
       # ----------------------------------------------------------------
-      - conditions:
-          - condition: trigger
-            id: 'pm_an'
-          - condition: state
-            entity_id: !input override_helper
-            state: 'off'
-          - condition: state
-            entity_id: !input light_entity
-            state: 'off'
-          - condition: numeric_state
-            entity_id: !input lux_sensor
-            below: !input lux_threshold
-        sequence: !input turn_on_action
-
-      # ----------------------------------------------------------------
-      # 1. PM AUS (T1) -> Automatisches Ausschalten
-      # ----------------------------------------------------------------
-      - conditions:
-          - condition: trigger
-            id: 'pm_aus'
-          - condition: state
-            entity_id: !input override_helper
-            state: 'off'
-        sequence:
-          - service: light.turn_off
-            target:
-              entity_id: !input light_entity
-
-      # ----------------------------------------------------------------
-      # 2. LICHT AUS (T2) -> Override Reset
-      # ----------------------------------------------------------------
-      - conditions:
-          - condition: trigger
-            id: 'licht_aus'
-          - condition: state
-            entity_id: !input override_helper
-            state: 'on'
-        sequence:
-          - service: input_boolean.turn_off
-            target:
-              entity_id: !input override_helper
-
-      # ----------------------------------------------------------------
-      # 3. MANUELL AN (T3) -> Override setzen (Zeit-Logik)
-      # ----------------------------------------------------------------
-      - conditions:
-          - condition: trigger
-            id: 'manuell_an'
-          - condition: template
-            value_template: >
-              {% set pm_last_changed = states[praesenz_melder].last_changed %}
-              {% set time_diff = (as_timestamp(now()) - as_timestamp(pm_last_changed)) %}
-              
-              {# LOGIK: Wenn der PM seinen Status vor weniger als 3 Sekunden auf ON #}
-              {# geändert hat, war es sehr wahrscheinlich die Automatik (T0). #}
-              {# Wenn es länger her ist, muss es eine manuelle Schaltung sein. #}
-              
-              {{ 
-                 (trigger.to_state.context.user_id is not none) 
-                 or 
-                 (time_diff > 3)
-              }}
-        sequence:
-          - service: input_boolean.turn_on
-            target:
-              entity_id: !input override_helper
-
-      # ----------------------------------------------------------------
-      # 4. OVERRIDE LOCK (T4) -> Nachdrücken
-      # ----------------------------------------------------------------
-      - conditions:
-          - condition: trigger
-            id: 'manuell_lock'
-        sequence:
-          - service: input_boolean.turn_on
-            target:
-              entity_id: !input override_helper
+      - conditions
