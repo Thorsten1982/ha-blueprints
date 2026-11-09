@@ -10,15 +10,15 @@ Berechnet die absolute Feuchtigkeit (AH) nach der Magnus-Formel und empfiehlt St
 
 [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FThorsten1982%2Fha-blueprints%2Fblob%2Fmain%2Fdynamic_ventilation_optimized.yaml)
 
-* **Features:** Hysterese-Schwellenwerte, anwesenheits- und zeitgesteuert, automatischer Helfer-Reset bei geschlossenem Fenster, moderne `action:`-Syntax.
+* **Features:** Hysterese-Schwellenwerte (Öffnen/Schließen), anwesenheits- und zeitgesteuert, Kälteschutz, automatischer Helfer-Reset bei geschlossenem Fenster sowie moderne `action:`-Syntax (HA 2024.8+).
 * **Credits:** Basiert ursprünglich auf der Blueprint von `@lukinho9821` (Home Assistant Community) sowie Weiterentwicklungen von `@jrfigura`.
 
 ---
 
-## 2. PM-Lichtsteuerung mit manuellem Override
+## 2. Präsenzmelder-Lichtsteuerung mit manuellem Override (V10)
 
-Lichtsteuerung über Präsenzmelder mit Unterstützung für manuelle Overrides.
+Steuert die Beleuchtung präsenzabhängig und bietet eine zuverlässige Manuell-Sperre (Override) bei Betätigung von Wandschaltern.
 
-[![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FThorsten1982%2Fha-blueprints%2Fblob%2Fmain%2FPM-Lichtsteuerung%2520mit%2520manuellem%2520Override.yaml)
+[![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FThorsten1982%2Fha-blueprints%2Fblob%2Fmain%2Fpm_light_control.yaml)
 
-*(Hinweis: Passe den Dateinamen im Import-Link oben an den exakten Dateinamen deines Präsenzmelder-Blueprints an).*
+* **Features:** Robustes Override-Handling über Zeit-Korrelation (löst Probleme mit fehlenden Context-IDs), "Override Lock" bei
