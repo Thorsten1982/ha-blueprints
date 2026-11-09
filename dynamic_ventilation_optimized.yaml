@@ -87,4 +87,95 @@ blueprint:
           mode: slider
 
     window_state_sensor:
-      name: Fenster-
+      name: Fenster-Sensor (Optional)
+      description: Binärer Sensor (z.B. Fensterkontakt). Verhindert unnötige Benachrichtigungen.
+      default: ''
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: false
+
+    presence_entity:
+      name: Anwesenheits-Entität (Optional)
+      description: Nur Benachrichtigung senden, wenn diese Entität 'on' oder 'home' ist.
+      default: ''
+      selector:
+        entity:
+          multiple: false
+
+    active_time_start:
+      name: Benachrichtigungszeitraum (Start HH:MM)
+      description: Ab dieser Uhrzeit sind "Öffnen"-Benachrichtigungen aktiv.
+      default: '07:00'
+      selector:
+        text:
+
+    active_time_end:
+      name: Benachrichtigungszeitraum (Ende HH:MM)
+      description: Bis zu dieser Uhrzeit sind "Öffnen"-Benachrichtigungen aktiv.
+      default: '22:00'
+      selector:
+        text:
+
+    min_temp_outside:
+      name: Mindest-Außentemperatur für Lüften (°C)
+      description: Verhindert "Öffnen"-Meldungen bei zu kalten Außentemperaturen.
+      default: 3.0
+      selector:
+        number:
+          min: -20.0
+          max: 10.0
+          step: 0.1
+          unit_of_measurement: °C
+          mode: slider
+
+    message_ventilate:
+      name: Nachricht bei Lüftungsempfehlung
+      default: '{{ room_name }}: Hohe Feuchtigkeit! Stoßlüften ist notwendig.'
+
+    message_close:
+      name: Nachricht bei Lüftungsziel erreicht
+      default: 'Lüftungsziel im {{ room_name }} erreicht. Fenster kann geschlossen werden.'
+
+triggers:
+  - trigger: time_pattern
+    minutes: /5
+
+conditions:
+  - condition: template
+    value_template: '{{ have_valid_data }}'
+
+variables:
+  temp_inside_entity: !input temp_inside
+  rh_inside_entity: !input rh_inside
+  temp_outside_entity: !input temp_outside
+  rh_outside_entity: !input rh_outside
+  state_helper_entity: !input state_helper
+  room_name: !input room_name
+  threshold: !input threshold
+  close_threshold: !input close_threshold
+  window_sensor_entity: !input window_state_sensor
+  presence_entity: !input presence_entity
+  active_time_start: !input active_time_start
+  active_time_end: !input active_time_end
+  min_temp_outside: !input min_temp_outside
+  notify_push: !input notify_push
+  notify_tts: !input notify_tts
+  message_ventilate: !input message_ventilate
+  message_close: !input message_close
+  
+  have_valid_data: >
+    {{ states(temp_inside_entity) not in ['unknown','unavailable','none','']
+       and states(temp_outside_entity) not in ['unknown','unavailable','none','']
+       and states(rh_inside_entity) not in ['unknown','unavailable','none','']
+       and states(rh_outside_entity) not in ['unknown','unavailable','none',''] }}
+
+  e_const: 2.718281828459045
+  t_in: "{{ states(temp_inside_entity) | float(0) }}"
+  rh_in: "{{ states(rh_inside_entity) | float(0) }}"
+  t_out: "{{ states(temp_outside_entity) | float(0) }}"
+  rh_out: "{{ states(rh_outside_entity) | float(0) }}"
+  
+  # Absolute Feuchtigkeit (g/m³) nach Magnus-Formel
+  af_in: >
+    {{ 216.7
