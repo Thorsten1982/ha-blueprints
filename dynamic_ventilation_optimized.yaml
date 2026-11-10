@@ -1,9 +1,9 @@
-Blueprint:
-  name: Dynamische Lüftung (AH- & r.F.-basiert, Optimiert v3)
+blueprint:
+  name: Dynamische Lüftung (AH, r.F. & Auskühlschutz v4)
   description: >
-    Berechnet die absolute Feuchtigkeit (AH) nach der Magnus-Formel und empfiehlt 
-    Stoßlüften, wenn die Außenluft trockener ist als die Innenluft UND die relative 
-    Innenfeuchtigkeit den gewählten Schwellenwert überschreitet.
+    Berechnet die absolute Feuchtigkeit (AH) nach der Magnus-Formel und empfiehlt Stoßlüften 
+    erst bei ausreichend hoher relativer Innenfeuchte. Enthält einen integrierten Auskühlschutz-Timer 
+    für offene Fenster bei Fußbodenheizungssystemen.
   source_url: https://github.com/Thorsten1982/ha-blueprints/blob/main/dynamic_ventilation_optimized.yaml
   domain: automation
 
@@ -61,7 +61,7 @@ Blueprint:
 
     rh_trigger:
       name: Mindest-Innenfeuchte für ÖFFNEN (% r.F.)
-      description: Erst wenn die relative Feuchte innen diesen Wert überschreitet, wird gelüftet.
+      description: Erst wenn die relative Feuchte innen diesen Wert erreicht oder überschreitet, wird gelüftet.
       default: 60.0
       selector:
         number:
@@ -73,7 +73,7 @@ Blueprint:
 
     rh_target:
       name: Ziel-Innenfeuchte für SCHLIESSEN (% r.F.)
-      description: Lüften ist auch beendet, wenn die relative Feuchte innen unter diesen Wert fällt.
+      description: Lüften ist beendet, wenn die relative Feuchte innen unter diesen Wert fällt.
       default: 55.0
       selector:
         number:
@@ -109,12 +109,24 @@ Blueprint:
 
     window_state_sensor:
       name: Fenster-Sensor (Optional)
-      description: Binärer Sensor (z.B. Fensterkontakt). Verhindert unnötige Benachrichtigungen.
+      description: Binärer Sensor (z.B. Homematic/Zigbee Fensterkontakt).
       default: ''
       selector:
         entity:
           domain: binary_sensor
           multiple: false
+
+    open_timer_minutes:
+      name: Auskühlschutz-Timer (Minuten)
+      description: Warnt, wenn das Fenster bei kühlen Außentemperaturen länger als X Minuten offen bleibt.
+      default: 10
+      selector:
+        number:
+          min: 3
+          max: 30
+          step: 1
+          unit_of_measurement: min
+          mode: slider
 
     presence_entity:
       name: Anwesenheits-Entität (Optional)
@@ -158,9 +170,15 @@ Blueprint:
       name: Nachricht bei Lüftungsziel erreicht
       default: 'Lüftungsziel im {{ room_name }} erreicht. Fenster kann geschlossen werden.'
 
+    message_open_too_long:
+      name: Nachricht bei Auskühlschutz
+      default: 'Auskühlschutz: Das Fenster im {{ room_name }} ist seit über {{ open_timer_minutes }} Minuten offen. Bitte schließen!'
+
 trigger:
   - platform: time_pattern
     minutes: /5
+  - platform: state
+    entity_id: !input window_state_sensor
 
 condition:
   - condition: template
@@ -178,6 +196,7 @@ variables:
   threshold: !input threshold
   close_threshold: !input close_threshold
   window_sensor_entity: !input window_state_sensor
+  open_timer_minutes: !input open_timer_minutes
   presence_entity: !input presence_entity
   active_time_start: !input active_time_start
   active_time_end: !input active_time_end
@@ -186,6 +205,7 @@ variables:
   notify_tts: !input notify_tts
   message_ventilate: !input message_ventilate
   message_close: !input message_close
+  message_open_too_long: !input message_open_too_long
 
   have_valid_data: >
     {{ states(temp_inside_entity) not in ['unknown','unavailable','none','']
@@ -206,18 +226,25 @@ variables:
     {{ 216.7 * ((rh_out / 100) * (6.112 * (e_const ** ((17.62 * t_out) / (243.12 + t_out))))) / (273.15 + t_out) }}
   
   delta_af: "{{ af_in - af_out }}"
-  delta_rh: "{{ rh_in - rh_out }}"
 
-  # KORREKTUR: Lüften nur, wenn AH-Differenz vorhanden IST UND r.F. innen über dem Schwellenwert liegt
   ventilation_needed_to_open: >
     {{ (delta_af | float(0)) > (threshold | float(0)) and (rh_in | float(0)) >= (rh_trigger | float(60)) }}
 
-  # KORREKTUR: Schließen, wenn AH-Differenz erreicht IST ODER r.F. innen bereits ausreichend gesunken ist
   air_is_ok_to_close: >
     {{ (delta_af | float(0)) <= (close_threshold | float(0)) or (rh_in | float(0)) <= (rh_target | float(55)) }}
 
   window_is_closed: >
     {{ window_sensor_entity == '' or is_state(window_sensor_entity, 'off') or is_state(window_sensor_entity, 'closed') }}
+
+  window_is_open: >
+    {{ window_sensor_entity != '' and (is_state(window_sensor_entity, 'on') or is_state(window_sensor_entity, 'open')) }}
+
+  window_open_duration_sec: >
+    {% if window_is_open %}
+      {{ (as_timestamp(now()) - as_timestamp(states[window_sensor_entity].last_changed)) | default(0) }}
+    {% else %}
+      0
+    {% endif %}
 
   is_someone_home: >
     {{ presence_entity == '' or is_state(presence_entity, 'on') or is_state(presence_entity, 'home') }}
@@ -231,6 +258,7 @@ variables:
 
   title_open: "🪟 Fenster öffnen — {{ room_name }}"
   title_close: "🚪 Fenster schließen — {{ room_name }}"
+  title_too_long: "🥶 Auskühlschutz — {{ room_name }}"
 
 action:
   - choose:
@@ -259,7 +287,7 @@ action:
 
                 Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ t_out | round(1) }}°C
 
-                ΔAH = {{ delta_af | round(1) }} g/m³ (Öffnen bei {{ threshold | round(1) }})
+                ΔAH = {{ delta_af | round(1) }} g/m³ (Öffnen ab {{ rh_trigger | round(0) }}% r.F. / ΔAH {{ threshold | round(1) }})
           - choose:
               - conditions:
                   - condition: template
@@ -269,10 +297,10 @@ action:
                     data:
                       message: "{{ message_ventilate }}"
 
-      # AKTION 2: FENSTER SCHLIESSEN (Ziel erreicht)
+      # AKTION 2: FENSTER SCHLIESSEN (Lüftungsziel über AH oder r.F. erreicht)
       - conditions:
           - condition: template
-            value_template: "{{ air_is_ok_to_close and helper_is_on }}"
+            value_template: "{{ air_is_ok_to_close and helper_is_on and window_is_open }}"
         sequence:
           - action: input_boolean.turn_off
             target:
@@ -297,15 +325,25 @@ action:
                     data:
                       message: "{{ message_close }}"
 
-      # AKTION 3: MANUELLES SCHLIESSEN (Reset des Helfers bei geschlossenem Fenster)
+      # AKTION 3: AUSKÜHLSCHUTZ (Fenster steht bei kühlem Wetter zu lange offen)
       - conditions:
           - condition: template
             value_template: >
-              {{ helper_is_on 
-                 and window_sensor_entity != '' 
-                 and (is_state(window_sensor_entity, 'off') or is_state(window_sensor_entity, 'closed'))
-                 and not air_is_ok_to_close 
+              {{ window_is_open 
+                 and window_open_duration_sec >= ((open_timer_minutes | float(10)) * 60)
+                 and window_open_duration_sec < (((open_timer_minutes | float(10)) * 60) + 300)
+                 and t_out < 15.0
               }}
+        sequence:
+          - action: "{{ notify_push }}"
+            data:
+              title: "{{ title_too_long }}"
+              message: "{{ message_open_too_long }}"
+
+      # AKTION 4: MANUELLES SCHLIESSEN (Reset des Helfers bei geschlossenem Fenster)
+      - conditions:
+          - condition: template
+            value_template: "{{ helper_is_on and window_is_closed }}"
         sequence:
           - action: input_boolean.turn_off
             target:
