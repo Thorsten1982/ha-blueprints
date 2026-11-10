@@ -10,7 +10,226 @@ blueprint:
 
   input:
     temp_inside:
+      name: Sensor Innen-Temperaturblueprint:
+  name: Dynamische Lüftung (AH, r.F., Auskühlschutz & TTS v4.2)
+  description: >
+    Berechnet die absolute Feuchtigkeit (AH) nach der Magnus-Formel und empfiehlt 
+    Stoßlüften erst bei ausreichend hoher relativer Innenfeuchte. Enthält einen 
+    integrierten Auskühlschutz-Timer für offene Fenster bei Fußbodenheizungssystemen 
+    sowie eine getrennte TTS-Steuerung für Dienst und Ziel-Geräte.
+  source_url: https://github.com/Thorsten1982/ha-blueprints/blob/main/dynamic_ventilation_optimized.yaml
+  domain: automation
+
+  input:
+    temp_inside:
       name: Sensor Innen-Temperatur
+      selector:
+        entity:
+          domain: sensor
+          multiple: false
+    rh_inside:
+      name: Sensor Innen-Luftfeuchtigkeit
+      selector:
+        entity:
+          domain: sensor
+          multiple: false
+    temp_outside:
+      name: Sensor Außen-Temperatur
+      selector:
+        entity:
+          domain: sensor
+          multiple: false
+    rh_outside:
+      name: Sensor Außen-Luftfeuchtigkeit
+      selector:
+        entity:
+          domain: sensor
+          multiple: false
+    state_helper:
+      name: Helfer-Toggle (input_boolean)
+      description: Erstellen Sie einen input_boolean-Helfer für diesen Raum, um den Lüftungszustand zu verfolgen.
+      selector:
+        entity:
+          domain: input_boolean
+          multiple: false
+    notify_push:
+      name: Push-Benachrichtigungsdienst (z.B. notify.mobile_app_your_phone oder notify.familie)
+      default: ''
+      selector:
+        text:
+          multiple: false
+          multiline: false
+
+    tts_service:
+      name: (Optional) TTS-Dienst / Engine
+      description: Wählen Sie Ihren TTS-Dienst aus dem Dropdown oder tragen Sie einen eigenen ein.
+      default: ''
+      selector:
+        select:
+          custom_value: true
+          options:
+            - label: "Google Translate (tts.google_translate_say)"
+              value: "tts.google_translate_say"
+            - label: "Alexa Media Player (notify.alexa_media)"
+              value: "notify.alexa_media"
+            - label: "Piper Local TTS (tts.piper)"
+              value: "tts.piper"
+            - label: "HA Standard (tts.speak)"
+              value: "tts.speak"
+
+    tts_target:
+      name: (Optional) TTS Ziel-Lautsprecher
+      description: Wählen Sie einen oder mehrere Lautsprecher (Media Player) aus.
+      default: {}
+      selector:
+        target:
+          entity:
+            domain: media_player
+
+    room_name:
+      name: Raumname (für Nachrichten)
+      selector:
+        text:
+          multiple: false
+          multiline: false
+
+    rh_trigger:
+      name: Mindest-Innenfeuchte für ÖFFNEN (% r.F.)
+      description: Erst wenn die relative Feuchte innen diesen Wert erreicht oder überschreitet, wird gelüftet.
+      default: 60.0
+      selector:
+        number:
+          min: 45.0
+          max: 80.0
+          step: 1.0
+          unit_of_measurement: '%'
+          mode: slider
+
+    rh_target:
+      name: Ziel-Innenfeuchte für SCHLIESSEN (% r.F.)
+      description: Lüften ist beendet, wenn die relative Feuchte innen unter diesen Wert fällt.
+      default: 55.0
+      selector:
+        number:
+          min: 40.0
+          max: 75.0
+          step: 1.0
+          unit_of_measurement: '%'
+          mode: slider
+
+    threshold:
+      name: Schwellenwert AH-Differenz (ÖFFNEN)
+      description: Lüften empfohlen, wenn die AH-Differenz (Innen-Außen) diesen Wert überschreitet.
+      default: 2.0
+      selector:
+        number:
+          min: 0.5
+          max: 10.0
+          step: 0.1
+          unit_of_measurement: g/m³
+          mode: slider
+
+    close_threshold:
+      name: Schwellenwert AH-Differenz (SCHLIESSEN/Ziel)
+      description: Lüftungsziel erreicht, wenn die AH-Differenz auf diesen Wert oder niedriger sinkt.
+      default: 1.0
+      selector:
+        number:
+          min: 0.1
+          max: 9.9
+          step: 0.1
+          unit_of_measurement: g/m³
+          mode: slider
+
+    window_state_sensor:
+      name: Fenster-Sensor (Optional)
+      description: Binärer Sensor (z.B. Homematic/Zigbee Fensterkontakt).
+      default: ''
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: false
+
+    open_timer_minutes:
+      name: Auskühlschutz-Timer (Minuten)
+      description: Warnt, wenn das Fenster bei kühlen Außentemperaturen länger als X Minuten offen bleibt.
+      default: 10
+      selector:
+        number:
+          min: 3
+          max: 30
+          step: 1
+          unit_of_measurement: min
+          mode: slider
+
+    presence_entity:
+      name: Anwesenheits-Entität (Optional)
+      description: Nur Benachrichtigung senden, wenn diese Entität 'on' oder 'home' ist.
+      default: ''
+      selector:
+        entity:
+          multiple: false
+
+    active_time_start:
+      name: Benachrichtigungszeitraum (Start HH:MM)
+      description: Ab dieser Uhrzeit sind "Öffnen"-Benachrichtigungen aktiv.
+      default: '07:00'
+      selector:
+        text:
+
+    active_time_end:
+      name: Benachrichtigungszeitraum (Ende HH:MM)
+      description: Bis zu dieser Uhrzeit sind "Öffnen"-Benachrichtigungen aktiv.
+      default: '22:00'
+      selector:
+        text:
+
+    min_temp_outside:
+      name: Mindest-Außentemperatur für Lüften (°C)
+      description: Verhindert "Öffnen"-Meldungen bei zu kalten Außentemperaturen.
+      default: 3.0
+      selector:
+        number:
+          min: -20.0
+          max: 10.0
+          step: 0.1
+          unit_of_measurement: °C
+          mode: slider
+
+    message_ventilate:
+      name: Nachricht bei Lüftungsempfehlung
+      default: '{{ room_name }}: Hohe Feuchtigkeit! Stoßlüften ist notwendig.'
+
+    message_close:
+      name: Nachricht bei Lüftungsziel erreicht
+      default: 'Lüftungsziel im {{ room_name }} erreicht. Fenster kann geschlossen werden.'
+
+    message_open_too_long:
+      name: Nachricht bei Auskühlschutz
+      default: 'Auskühlschutz: Das Fenster im {{ room_name }} ist seit über {{ open_timer_minutes }} Minuten offen. Bitte schließen!'
+
+trigger:
+  - platform: time_pattern
+    minutes: /5
+  - platform: state
+    entity_id: !input window_state_sensor
+
+condition:
+  - condition: template
+    value_template: '{{ have_valid_data }}'
+
+variables:
+  temp_inside_entity: !input temp_inside
+  rh_inside_entity: !input rh_inside
+  temp_outside_entity: !input temp_outside
+  rh_outside_entity: !input rh_outside
+  state_helper_entity: !input state_helper
+  room_name: !input room_name
+  rh_trigger: !input rh_trigger
+  rh_target: !input rh_target
+  threshold: !input threshold
+  close_threshold: !input close_threshold
+  window_sensor_entity
       selector:
         entity:
           domain: sensor
