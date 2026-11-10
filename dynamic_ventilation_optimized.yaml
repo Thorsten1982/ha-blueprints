@@ -43,7 +43,7 @@ blueprint:
           domain: input_boolean
           multiple: false
     notify_push:
-      name: Push-Benachrichtigungsdienst (z.B. notify.mobile_app_your_phone)
+      name: Push-Benachrichtigungsdienst (z.B. notify.mobile_app_your_phone oder notify.familie)
       selector:
         text:
           multiple: false
@@ -203,8 +203,6 @@ variables:
   
   title_open: "🪟 Fenster öffnen — {{ room_name }}"
   title_close: "🚪 Fenster schließen — {{ room_name }}"
-  tag_ventilate: "{{ 'ventilate_' ~ room_name | lower | replace(' ', '_') }}"
-  tag_close: "{{ 'ventilate_close_' ~ room_name | lower | replace(' ', '_') }}"
 
 action:
   - choose:
@@ -234,8 +232,6 @@ action:
                 Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ t_out | round(1) }}°C
 
                 ΔAH = {{ delta_af | round(1) }} g/m³ (Öffnen bei {{ threshold | round(1) }})
-              data:
-                tag: "{{ tag_ventilate }}"
           - choose:
               - conditions:
                   - condition: template
@@ -244,8 +240,6 @@ action:
                   - action: "{{ notify_tts }}"
                     data:
                       message: "{{ message_ventilate }}"
-                      data:
-                        type: announce
 
       # AKTION 2: FENSTER SCHLIESSEN (Ziel erreicht)
       - conditions:
@@ -266,8 +260,6 @@ action:
                 Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ t_out | round(1) }}°C
 
                 ΔAH = {{ delta_af | round(1) }} g/m³ (Ziel: {{ close_threshold | round(1) }})
-              data:
-                tag: "{{ tag_close }}"
           - choose:
               - conditions:
                   - condition: template
@@ -276,8 +268,6 @@ action:
                   - action: "{{ notify_tts }}"
                     data:
                       message: "{{ message_close }}"
-                      data:
-                        type: announce
 
       # AKTION 3: MANUELLES SCHLIESSEN (Reset des Helfers bei geschlossenem Fenster)
       - conditions:
