@@ -1,12 +1,9 @@
-blueprint:
-  name: Dynamische Lüftung (AH-basiert, Optimiert v2)
+Blueprint:
+  name: Dynamische Lüftung (AH- & r.F.-basiert, Optimiert v3)
   description: >
     Berechnet die absolute Feuchtigkeit (AH) nach der Magnus-Formel und empfiehlt 
-    Stoßlüften, wenn die Außenluft trockener ist als die Innenluft.
-    
-    Basiert ursprünglich auf der Blueprint von @lukinho9821 (Home Assistant Community) 
-    sowie Weiterentwicklungen von @jrfigura und wurde um Hysterese-Schwellenwerte, 
-    erweiterte Fenster-Resets und die moderne Action-Syntax (HA 2024.8+) angepasst.
+    Stoßlüften, wenn die Außenluft trockener ist als die Innenluft UND die relative 
+    Innenfeuchtigkeit den gewählten Schwellenwert überschreitet.
   source_url: https://github.com/Thorsten1982/ha-blueprints/blob/main/dynamic_ventilation_optimized.yaml
   domain: automation
 
@@ -62,10 +59,34 @@ blueprint:
           multiple: false
           multiline: false
 
+    rh_trigger:
+      name: Mindest-Innenfeuchte für ÖFFNEN (% r.F.)
+      description: Erst wenn die relative Feuchte innen diesen Wert überschreitet, wird gelüftet.
+      default: 60.0
+      selector:
+        number:
+          min: 45.0
+          max: 80.0
+          step: 1.0
+          unit_of_measurement: '%'
+          mode: slider
+
+    rh_target:
+      name: Ziel-Innenfeuchte für SCHLIESSEN (% r.F.)
+      description: Lüften ist auch beendet, wenn die relative Feuchte innen unter diesen Wert fällt.
+      default: 55.0
+      selector:
+        number:
+          min: 40.0
+          max: 75.0
+          step: 1.0
+          unit_of_measurement: '%'
+          mode: slider
+
     threshold:
       name: Schwellenwert AH-Differenz (ÖFFNEN)
       description: Lüften empfohlen, wenn die AH-Differenz (Innen-Außen) diesen Wert überschreitet.
-      default: 3.0
+      default: 2.0
       selector:
         number:
           min: 0.5
@@ -152,6 +173,8 @@ variables:
   rh_outside_entity: !input rh_outside
   state_helper_entity: !input state_helper
   room_name: !input room_name
+  rh_trigger: !input rh_trigger
+  rh_target: !input rh_target
   threshold: !input threshold
   close_threshold: !input close_threshold
   window_sensor_entity: !input window_state_sensor
@@ -163,7 +186,7 @@ variables:
   notify_tts: !input notify_tts
   message_ventilate: !input message_ventilate
   message_close: !input message_close
-  
+
   have_valid_data: >
     {{ states(temp_inside_entity) not in ['unknown','unavailable','none','']
        and states(temp_outside_entity) not in ['unknown','unavailable','none','']
@@ -175,7 +198,7 @@ variables:
   rh_in: "{{ states(rh_inside_entity) | float(0) }}"
   t_out: "{{ states(temp_outside_entity) | float(0) }}"
   rh_out: "{{ states(rh_outside_entity) | float(0) }}"
-  
+
   # Absolute Feuchtigkeit (g/m³) nach Magnus-Formel
   af_in: >
     {{ 216.7 * ((rh_in / 100) * (6.112 * (e_const ** ((17.62 * t_in) / (243.12 + t_in))))) / (273.15 + t_in) }}
@@ -185,8 +208,13 @@ variables:
   delta_af: "{{ af_in - af_out }}"
   delta_rh: "{{ rh_in - rh_out }}"
 
-  ventilation_needed_to_open: "{{ (delta_af | float(0)) > (threshold | float(0)) }}"
-  air_is_ok_to_close: "{{ (delta_af | float(0)) <= (close_threshold | float(0)) }}"
+  # KORREKTUR: Lüften nur, wenn AH-Differenz vorhanden IST UND r.F. innen über dem Schwellenwert liegt
+  ventilation_needed_to_open: >
+    {{ (delta_af | float(0)) > (threshold | float(0)) and (rh_in | float(0)) >= (rh_trigger | float(60)) }}
+
+  # KORREKTUR: Schließen, wenn AH-Differenz erreicht IST ODER r.F. innen bereits ausreichend gesunken ist
+  air_is_ok_to_close: >
+    {{ (delta_af | float(0)) <= (close_threshold | float(0)) or (rh_in | float(0)) <= (rh_target | float(55)) }}
 
   window_is_closed: >
     {{ window_sensor_entity == '' or is_state(window_sensor_entity, 'off') or is_state(window_sensor_entity, 'closed') }}
@@ -200,7 +228,7 @@ variables:
 
   is_not_too_cold: "{{ (t_out | float(-99)) >= (min_temp_outside | float(0)) }}"
   helper_is_on: "{{ is_state(state_helper_entity, 'on') }}"
-  
+
   title_open: "🪟 Fenster öffnen — {{ room_name }}"
   title_close: "🚪 Fenster schließen — {{ room_name }}"
 
