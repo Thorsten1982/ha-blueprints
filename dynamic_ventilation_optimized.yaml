@@ -1,9 +1,9 @@
 blueprint:
-  name: Dynamische Lüftung (AH, r.F. & Auskühlschutz v4)
+  name: Dynamische Lüftung (AH, r.F. & Auskühlschutz v4.1)
   description: >
-    Berechnet die absolute Feuchtigkeit (AH) nach der Magnus-Formel und empfiehlt Stoßlüften 
-    erst bei ausreichend hoher relativer Innenfeuchte. Enthält einen integrierten Auskühlschutz-Timer 
-    für offene Fenster bei Fußbodenheizungssystemen.
+    Berechnet die absolute Feuchtigkeit (AH) nach der Magnus-Formel und empfiehlt 
+    Stoßlüften erst bei ausreichend hoher relativer Innenfeuchte. Enthält einen 
+    integrierten Auskühlschutz-Timer für offene Fenster bei Fußbodenheizungssystemen.
   source_url: https://github.com/Thorsten1982/ha-blueprints/blob/main/dynamic_ventilation_optimized.yaml
   domain: automation
 
@@ -214,24 +214,25 @@ variables:
        and states(rh_outside_entity) not in ['unknown','unavailable','none',''] }}
 
   e_const: 2.718281828459045
-  t_in: "{{ states(temp_inside_entity) | float(0) }}"
+  temp_in: "{{ states(temp_inside_entity) | float(0) }}"
   rh_in: "{{ states(rh_inside_entity) | float(0) }}"
-  t_out: "{{ states(temp_outside_entity) | float(0) }}"
+  temp_out: "{{ states(temp_outside_entity) | float(0) }}"
   rh_out: "{{ states(rh_outside_entity) | float(0) }}"
 
-  # Absolute Feuchtigkeit (g/m³) nach Magnus-Formel
   af_in: >
-    {{ 216.7 * ((rh_in / 100) * (6.112 * (e_const ** ((17.62 * t_in) / (243.12 + t_in))))) / (273.15 + t_in) }}
+    {{ 216.7 * ((rh_in / 100) * (6.112 * (e_const ** ((17.62 * temp_in) / (243.12 + temp_in))))) / (273.15 + temp_in) }}
   af_out: >
-    {{ 216.7 * ((rh_out / 100) * (6.112 * (e_const ** ((17.62 * t_out) / (243.12 + t_out))))) / (273.15 + t_out) }}
+    {{ 216.7 * ((rh_out / 100) * (6.112 * (e_const ** ((17.62 * temp_out) / (243.12 + temp_out))))) / (273.15 + temp_out) }}
   
   delta_af: "{{ af_in - af_out }}"
 
-  ventilation_needed_to_open: >
-    {{ (delta_af | float(0)) > (threshold | float(0)) and (rh_in | float(0)) >= (rh_trigger | float(60)) }}
+  should_open: >
+    {{ (delta_af | float(0)) > (threshold | float(0))
+       and (rh_in | float(0)) >= (rh_trigger | float(60)) }}
 
-  air_is_ok_to_close: >
-    {{ (delta_af | float(0)) <= (close_threshold | float(0)) or (rh_in | float(0)) <= (rh_target | float(55)) }}
+  should_close: >
+    {{ (delta_af | float(0)) <= (close_threshold | float(0))
+       or (rh_in | float(0)) <= (rh_target | float(55)) }}
 
   window_is_closed: >
     {{ window_sensor_entity == '' or is_state(window_sensor_entity, 'off') or is_state(window_sensor_entity, 'closed') }}
@@ -250,10 +251,16 @@ variables:
     {{ presence_entity == '' or is_state(presence_entity, 'on') or is_state(presence_entity, 'home') }}
 
   is_active_time: >
-    {% set current_time = now().time().strftime('%H:%M') %}
-    {{ current_time >= active_time_start and current_time < active_time_end }}
+    {% set start = active_time_start | string %}
+    {% set end = active_time_end | string %}
+    {% set now_hm = now().strftime('%H:%M') %}
+    {% if start < end %}
+      {{ now_hm >= start and now_hm < end }}
+    {% else %}
+      {{ now_hm >= start or now_hm < end }}
+    {% endif %}
 
-  is_not_too_cold: "{{ (t_out | float(-99)) >= (min_temp_outside | float(0)) }}"
+  is_not_too_cold: "{{ (temp_out | float(-99)) >= (min_temp_outside | float(0)) }}"
   helper_is_on: "{{ is_state(state_helper_entity, 'on') }}"
 
   title_open: "🪟 Fenster öffnen — {{ room_name }}"
@@ -266,7 +273,7 @@ action:
       - conditions:
           - condition: template
             value_template: >
-              {{ ventilation_needed_to_open
+              {{ should_open
                  and not helper_is_on
                  and window_is_closed 
                  and is_someone_home 
@@ -277,49 +284,59 @@ action:
           - action: input_boolean.turn_on
             target:
               entity_id: !input state_helper
-          - action: "{{ notify_push }}"
-            data:
-              title: "{{ title_open }}"
-              message: >
-                {{ message_ventilate }}
-
-                Innen: {{ rh_in | round(0) }}%, {{ af_in | round(1) }} g/m³ — {{ t_in | round(1) }}°C
-
-                Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ t_out | round(1) }}°C
-
-                ΔAH = {{ delta_af | round(1) }} g/m³ (Öffnen ab {{ rh_trigger | round(0) }}% r.F. / ΔAH {{ threshold | round(1) }})
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ (notify_tts | default('')) | string != '' }}"
+                    value_template: "{{ (notify_push | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ notify_push }}"
+                    data:
+                      title: "{{ title_open }}"
+                      message: >
+                        {{ message_ventilate }}
+
+                        Innen: {{ rh_in | round(0) }}%, {{ af_in | round(1) }} g/m³ — {{ temp_in | round(1) }}°C
+
+                        Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ temp_out | round(1) }}°C
+
+                        ΔAH = {{ delta_af | round(1) }} g/m³ (Öffnen ab {{ rh_trigger | round(0) }}% r.F. / ΔAH {{ threshold | round(1) }})
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (notify_tts | default('') | string | length) > 0 }}"
                 sequence:
                   - action: "{{ notify_tts }}"
                     data:
                       message: "{{ message_ventilate }}"
 
-      # AKTION 2: FENSTER SCHLIESSEN (Lüftungsziel über AH oder r.F. erreicht)
+      # AKTION 2: FENSTER SCHLIESSEN (Lüftungsziel erreicht & Fenster ist tatsächlich offen)
       - conditions:
           - condition: template
-            value_template: "{{ air_is_ok_to_close and helper_is_on and window_is_open }}"
+            value_template: "{{ should_close and helper_is_on and window_is_open }}"
         sequence:
           - action: input_boolean.turn_off
             target:
               entity_id: !input state_helper
-          - action: "{{ notify_push }}"
-            data:
-              title: "{{ title_close }}"
-              message: >
-                {{ message_close }}
-
-                Innen: {{ rh_in | round(0) }}%, {{ af_in | round(1) }} g/m³ — {{ t_in | round(1) }}°C
-
-                Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ t_out | round(1) }}°C
-
-                ΔAH = {{ delta_af | round(1) }} g/m³ (Ziel: {{ close_threshold | round(1) }})
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ (notify_tts | default('')) | string != '' }}"
+                    value_template: "{{ (notify_push | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ notify_push }}"
+                    data:
+                      title: "{{ title_close }}"
+                      message: >
+                        {{ message_close }}
+
+                        Innen: {{ rh_in | round(0) }}%, {{ af_in | round(1) }} g/m³ — {{ temp_in | round(1) }}°C
+
+                        Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ temp_out | round(1) }}°C
+
+                        ΔAH = {{ delta_af | round(1) }} g/m³ (Ziel: {{ close_threshold | round(1) }})
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (notify_tts | default('') | string | length) > 0 }}"
                 sequence:
                   - action: "{{ notify_tts }}"
                     data:
@@ -332,15 +349,20 @@ action:
               {{ window_is_open 
                  and window_open_duration_sec >= ((open_timer_minutes | float(10)) * 60)
                  and window_open_duration_sec < (((open_timer_minutes | float(10)) * 60) + 300)
-                 and t_out < 15.0
+                 and temp_out < 15.0
               }}
         sequence:
-          - action: "{{ notify_push }}"
-            data:
-              title: "{{ title_too_long }}"
-              message: "{{ message_open_too_long }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (notify_push | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ notify_push }}"
+                    data:
+                      title: "{{ title_too_long }}"
+                      message: "{{ message_open_too_long }}"
 
-      # AKTION 4: MANUELLES SCHLIESSEN (Reset des Helfers bei geschlossenem Fenster)
+      # AKTION 4: MANUELLES SCHLIESSEN (Sofortiger Reset des Helfers beim Schließen)
       - conditions:
           - condition: template
             value_template: "{{ helper_is_on and window_is_closed }}"
