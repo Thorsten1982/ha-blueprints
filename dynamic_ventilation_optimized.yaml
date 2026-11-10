@@ -10,18 +10,6 @@ blueprint:
 
   input:
     temp_inside:
-      name: Sensor Innen-Temperaturblueprint:
-  name: Dynamische Lüftung (AH, r.F., Auskühlschutz & TTS v4.2)
-  description: >
-    Berechnet die absolute Feuchtigkeit (AH) nach der Magnus-Formel und empfiehlt 
-    Stoßlüften erst bei ausreichend hoher relativer Innenfeuchte. Enthält einen 
-    integrierten Auskühlschutz-Timer für offene Fenster bei Fußbodenheizungssystemen 
-    sowie eine getrennte TTS-Steuerung für Dienst und Ziel-Geräte.
-  source_url: https://github.com/Thorsten1982/ha-blueprints/blob/main/dynamic_ventilation_optimized.yaml
-  domain: automation
-
-  input:
-    temp_inside:
       name: Sensor Innen-Temperatur
       selector:
         entity:
@@ -229,198 +217,191 @@ variables:
   rh_target: !input rh_target
   threshold: !input threshold
   close_threshold: !input close_threshold
-  window_sensor_entity
-      selector:
-        entity:
-          domain: sensor
-          multiple: false
-    rh_inside:
-      name: Sensor Innen-Luftfeuchtigkeit
-      selector:
-        entity:
-          domain: sensor
-          multiple: false
-    temp_outside:
-      name: Sensor Außen-Temperatur
-      selector:
-        entity:
-          domain: sensor
-          multiple: false
-    rh_outside:
-      name: Sensor Außen-Luftfeuchtigkeit
-      selector:
-        entity:
-          domain: sensor
-          multiple: false
-    state_helper:
-      name: Helfer-Toggle (input_boolean)
-      description: Erstellen Sie einen input_boolean-Helfer für diesen Raum, um den Lüftungszustand zu verfolgen.
-      selector:
-        entity:
-          domain: input_boolean
-          multiple: false
-    notify_push:
-      name: Push-Benachrichtigungsdienst (z.B. notify.mobile_app_your_phone oder notify.familie)
-      default: ''
-      selector:
-        text:
-          multiple: false
-          multiline: false
+  window_sensor_entity: !input window_state_sensor
+  open_timer_minutes: !input open_timer_minutes
+  presence_entity: !input presence_entity
+  active_time_start: !input active_time_start
+  active_time_end: !input active_time_end
+  min_temp_outside: !input min_temp_outside
+  notify_push: !input notify_push
+  tts_service: !input tts_service
+  message_ventilate: !input message_ventilate
+  message_close: !input message_close
+  message_open_too_long: !input message_open_too_long
 
-    tts_service:
-      name: (Optional) TTS-Dienst / Engine
-      description: Wählen Sie Ihren TTS-Dienst aus dem Dropdown oder tragen Sie einen eigenen ein.
-      default: ''
-      selector:
-        select:
-          custom_value: true
-          options:
-            - label: "Google Translate (tts.google_translate_say)"
-              value: "tts.google_translate_say"
-            - label: "Alexa Media Player (notify.alexa_media)"
-              value: "notify.alexa_media"
-            - label: "Piper Local TTS (tts.piper)"
-              value: "tts.piper"
-            - label: "HA Standard (tts.speak)"
-              value: "tts.speak"
+  have_valid_data: >
+    {{ states(temp_inside_entity) not in ['unknown','unavailable','none','']
+       and states(temp_outside_entity) not in ['unknown','unavailable','none','']
+       and states(rh_inside_entity) not in ['unknown','unavailable','none','']
+       and states(rh_outside_entity) not in ['unknown','unavailable','none',''] }}
 
-    tts_target:
-      name: (Optional) TTS Ziel-Lautsprecher
-      description: Wählen Sie einen oder mehrere Lautsprecher (Media Player) aus.
-      default: {}
-      selector:
-        target:
-          entity:
-            domain: media_player
+  e_const: 2.718281828459045
+  temp_in: "{{ states(temp_inside_entity) | float(0) }}"
+  rh_in: "{{ states(rh_inside_entity) | float(0) }}"
+  temp_out: "{{ states(temp_outside_entity) | float(0) }}"
+  rh_out: "{{ states(rh_outside_entity) | float(0) }}"
 
-    room_name:
-      name: Raumname (für Nachrichten)
-      selector:
-        text:
-          multiple: false
-          multiline: false
+  af_in: >
+    {{ 216.7 * ((rh_in / 100) * (6.112 * (e_const ** ((17.62 * temp_in) / (243.12 + temp_in))))) / (273.15 + temp_in) }}
+  af_out: >
+    {{ 216.7 * ((rh_out / 100) * (6.112 * (e_const ** ((17.62 * temp_out) / (243.12 + temp_out))))) / (273.15 + temp_out) }}
+  
+  delta_af: "{{ af_in - af_out }}"
 
-    rh_trigger:
-      name: Mindest-Innenfeuchte für ÖFFNEN (% r.F.)
-      description: Erst wenn die relative Feuchte innen diesen Wert erreicht oder überschreitet, wird gelüftet.
-      default: 60.0
-      selector:
-        number:
-          min: 45.0
-          max: 80.0
-          step: 1.0
-          unit_of_measurement: '%'
-          mode: slider
+  should_open: >
+    {{ (delta_af | float(0)) > (threshold | float(0))
+       and (rh_in | float(0)) >= (rh_trigger | float(60)) }}
 
-    rh_target:
-      name: Ziel-Innenfeuchte für SCHLIESSEN (% r.F.)
-      description: Lüften ist beendet, wenn die relative Feuchte innen unter diesen Wert fällt.
-      default: 55.0
-      selector:
-        number:
-          min: 40.0
-          max: 75.0
-          step: 1.0
-          unit_of_measurement: '%'
-          mode: slider
+  should_close: >
+    {{ (delta_af | float(0)) <= (close_threshold | float(0))
+       or (rh_in | float(0)) <= (rh_target | float(55)) }}
 
-    threshold:
-      name: Schwellenwert AH-Differenz (ÖFFNEN)
-      description: Lüften empfohlen, wenn die AH-Differenz (Innen-Außen) diesen Wert überschreitet.
-      default: 2.0
-      selector:
-        number:
-          min: 0.5
-          max: 10.0
-          step: 0.1
-          unit_of_measurement: g/m³
-          mode: slider
+  window_is_closed: >
+    {{ window_sensor_entity == '' or is_state(window_sensor_entity, 'off') or is_state(window_sensor_entity, 'closed') }}
 
-    close_threshold:
-      name: Schwellenwert AH-Differenz (SCHLIESSEN/Ziel)
-      description: Lüftungsziel erreicht, wenn die AH-Differenz auf diesen Wert oder niedriger sinkt.
-      default: 1.0
-      selector:
-        number:
-          min: 0.1
-          max: 9.9
-          step: 0.1
-          unit_of_measurement: g/m³
-          mode: slider
+  window_is_open: >
+    {{ window_sensor_entity != '' and (is_state(window_sensor_entity, 'on') or is_state(window_sensor_entity, 'open')) }}
 
-    window_state_sensor:
-      name: Fenster-Sensor (Optional)
-      description: Binärer Sensor (z.B. Homematic/Zigbee Fensterkontakt).
-      default: ''
-      selector:
-        entity:
-          domain: binary_sensor
-          multiple: false
+  window_open_duration_sec: >
+    {% if window_is_open %}
+      {{ (as_timestamp(now()) - as_timestamp(states[window_sensor_entity].last_changed)) | default(0) }}
+    {% else %}
+      0
+    {% endif %}
 
-    open_timer_minutes:
-      name: Auskühlschutz-Timer (Minuten)
-      description: Warnt, wenn das Fenster bei kühlen Außentemperaturen länger als X Minuten offen bleibt.
-      default: 10
-      selector:
-        number:
-          min: 3
-          max: 30
-          step: 1
-          unit_of_measurement: min
-          mode: slider
+  is_someone_home: >
+    {{ presence_entity == '' or is_state(presence_entity, 'on') or is_state(presence_entity, 'home') }}
 
-    presence_entity:
-      name: Anwesenheits-Entität (Optional)
-      description: Nur Benachrichtigung senden, wenn diese Entität 'on' oder 'home' ist.
-      default: ''
-      selector:
-        entity:
-          multiple: false
+  is_active_time: >
+    {% set start = active_time_start | string %}
+    {% set end = active_time_end | string %}
+    {% set now_hm = now().strftime('%H:%M') %}
+    {% if start < end %}
+      {{ now_hm >= start and now_hm < end }}
+    {% else %}
+      {{ now_hm >= start or now_hm < end }}
+    {% endif %}
 
-    active_time_start:
-      name: Benachrichtigungszeitraum (Start HH:MM)
-      description: Ab dieser Uhrzeit sind "Öffnen"-Benachrichtigungen aktiv.
-      default: '07:00'
-      selector:
-        text:
+  is_not_too_cold: "{{ (temp_out | float(-99)) >= (min_temp_outside | float(0)) }}"
+  helper_is_on: "{{ is_state(state_helper_entity, 'on') }}"
 
-    active_time_end:
-      name: Benachrichtigungszeitraum (Ende HH:MM)
-      description: Bis zu dieser Uhrzeit sind "Öffnen"-Benachrichtigungen aktiv.
-      default: '22:00'
-      selector:
-        text:
+  title_open: "🪟 Fenster öffnen — {{ room_name }}"
+  title_close: "🚪 Fenster schließen — {{ room_name }}"
+  title_too_long: "🥶 Auskühlschutz — {{ room_name }}"
 
-    min_temp_outside:
-      name: Mindest-Außentemperatur für Lüften (°C)
-      description: Verhindert "Öffnen"-Meldungen bei zu kalten Außentemperaturen.
-      default: 3.0
-      selector:
-        number:
-          min: -20.0
-          max: 10.0
-          step: 0.1
-          unit_of_measurement: °C
-          mode: slider
+action:
+  - choose:
+      # AKTION 1: FENSTER ÖFFNEN (Empfehlung)
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ should_open
+                 and not helper_is_on
+                 and window_is_closed 
+                 and is_someone_home 
+                 and is_active_time  
+                 and is_not_too_cold  
+              }}
+        sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: !input state_helper
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (notify_push | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ notify_push }}"
+                    data:
+                      title: "{{ title_open }}"
+                      message: >
+                        {{ message_ventilate }}
 
-    message_ventilate:
-      name: Nachricht bei Lüftungsempfehlung
-      default: '{{ room_name }}: Hohe Feuchtigkeit! Stoßlüften ist notwendig.'
+                        Innen: {{ rh_in | round(0) }}%, {{ af_in | round(1) }} g/m³ — {{ temp_in | round(1) }}°C
 
-    message_close:
-      name: Nachricht bei Lüftungsziel erreicht
-      default: 'Lüftungsziel im {{ room_name }} erreicht. Fenster kann geschlossen werden.'
+                        Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ temp_out | round(1) }}°C
 
-    message_open_too_long:
-      name: Nachricht bei Auskühlschutz
-      default: 'Auskühlschutz: Das Fenster im {{ room_name }} ist seit über {{ open_timer_minutes }} Minuten offen. Bitte schließen!'
+                        ΔAH = {{ delta_af | round(1) }} g/m³ (Öffnen ab {{ rh_trigger | round(0) }}% r.F. / ΔAH {{ threshold | round(1) }})
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (tts_service | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ tts_service }}"
+                    target: !input tts_target
+                    data:
+                      message: "{{ message_ventilate }}"
 
-trigger:
-  - platform: time_pattern
-    minutes: /5
-  - platform: state
-    entity_id: !input window_state_sensor
+      # AKTION 2: FENSTER SCHLIESSEN (Lüftungsziel erreicht & Fenster ist tatsächlich offen)
+      - conditions:
+          - condition: template
+            value_template: "{{ should_close and helper_is_on and window_is_open }}"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input state_helper
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (notify_push | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ notify_push }}"
+                    data:
+                      title: "{{ title_close }}"
+                      message: >
+                        {{ message_close }}
 
-condition:
-  - condition: template
-    value
+                        Innen: {{ rh_in | round(0) }}%, {{ af_in | round(1) }} g/m³ — {{ temp_in | round(1) }}°C
+
+                        Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ temp_out | round(1) }}°C
+
+                        ΔAH = {{ delta_af | round(1) }} g/m³ (Ziel: {{ close_threshold | round(1) }})
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (tts_service | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ tts_service }}"
+                    target: !input tts_target
+                    data:
+                      message: "{{ message_close }}"
+
+      # AKTION 3: AUSKÜHLSCHUTZ (Fenster steht bei kühlem Wetter zu lange offen)
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ window_is_open 
+                 and window_open_duration_sec >= ((open_timer_minutes | float(10)) * 60)
+                 and window_open_duration_sec < (((open_timer_minutes | float(10)) * 60) + 300)
+                 and temp_out < 15.0
+              }}
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (notify_push | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ notify_push }}"
+                    data:
+                      title: "{{ title_too_long }}"
+                      message: "{{ message_open_too_long }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (tts_service | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ tts_service }}"
+                    target: !input tts_target
+                    data:
+                      message: "{{ message_open_too_long }}"
+
+      # AKTION 4: MANUELLES SCHLIESSEN (Sofortiger Reset des Helfers beim Schließen)
+      - conditions:
+          - condition: template
+            value_template: "{{ helper_is_on and window_is_closed }}"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input state_helper
+
+mode: single
