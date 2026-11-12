@@ -1,9 +1,9 @@
 blueprint:
-  name: Dynamische Lüftung (AH, r.F., Auskühlschutz & TTS v4.2)
+  name: Dynamische Lüftung (AH, r.F., Auskühlschutz & TTS v4.3)
   description: >
     Berechnet die absolute Feuchtigkeit (AH) nach der Magnus-Formel und empfiehlt 
     Stoßlüften erst bei ausreichend hoher relativer Innenfeuchte. Enthält einen 
-    integrierten Auskühlschutz-Timer für offene Fenster bei Fußbodenheizungssystemen 
+    optionalen Auskühlschutz-Timer für offene Fenster bei Fußbodenheizungssystemen 
     sowie eine getrennte TTS-Steuerung für Dienst und Ziel-Geräte.
   source_url: https://github.com/Thorsten1982/ha-blueprints/blob/main/dynamic_ventilation_optimized.yaml
   domain: automation
@@ -138,6 +138,13 @@ blueprint:
           domain: binary_sensor
           multiple: false
 
+    enable_cooling_protection:
+      name: Auskühlschutz aktivieren (Optional)
+      description: Warnt, wenn das Fenster bei kühlen Außentemperaturen (unter 15°C) zu lange offen bleibt.
+      default: true
+      selector:
+        boolean:
+
     open_timer_minutes:
       name: Auskühlschutz-Timer (Minuten)
       description: Warnt, wenn das Fenster bei kühlen Außentemperaturen länger als X Minuten offen bleibt.
@@ -218,6 +225,7 @@ variables:
   threshold: !input threshold
   close_threshold: !input close_threshold
   window_sensor_entity: !input window_state_sensor
+  enable_cooling_protection: !input enable_cooling_protection
   open_timer_minutes: !input open_timer_minutes
   presence_entity: !input presence_entity
   active_time_start: !input active_time_start
@@ -370,10 +378,11 @@ action:
       - conditions:
           - condition: template
             value_template: >
-              {{ window_is_open 
+              {{ enable_cooling_protection
+                 and window_is_open 
                  and window_open_duration_sec >= ((open_timer_minutes | float(10)) * 60)
                  and window_open_duration_sec < (((open_timer_minutes | float(10)) * 60) + 300)
-                 and temp_out < 15.0
+                 and (temp_out | float(99)) < 15.0
               }}
         sequence:
           - choose:
