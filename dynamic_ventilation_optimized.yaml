@@ -1,11 +1,10 @@
 blueprint:
-  name: Dynamische Lüftung (AH, r.F., Auskühlschutz & TTS v4.5)
+  name: Dynamische Lüftung (AH, r.F., Auskühlschutz & TTS v4.6)
   description: >
     Berechnet die absolute Feuchtigkeit (AH) nach der Magnus-Formel und empfiehlt 
     Stoßlüften erst bei ausreichend hoher relativer Innenfeuchte. Enthält einen 
     optionalen Auskühlschutz-Timer für offene Fenster bei Fußbodenheizungssystemen 
     sowie eine getrennte TTS-Steuerung für Dienst und Ziel-Geräte.
-  source_url: https://github.com/Thorsten1982/ha-blueprints/blob/main/dynamic_ventilation_optimized.yaml
   domain: automation
 
   input:
@@ -203,17 +202,13 @@ blueprint:
       name: Nachricht bei Auskühlschutz
       default: 'Auskühlschutz: Das Fenster im {{ room_name }} ist seit über {{ open_timer_minutes }} Minuten offen. Bitte schließen!'
 
-trigger_variables:
-  window_sensor_trigger: !input window_state_sensor
-
 trigger:
   - platform: time_pattern
     minutes: /5
     id: timer
-  - platform: template
-    value_template: >
-      {{ window_sensor_trigger != '' and is_state(window_sensor_trigger, 'off') }}
-    id: window_closed
+  - platform: state
+    entity_id: !input window_state_sensor
+    id: window
 
 condition:
   - condition: template
@@ -305,7 +300,7 @@ variables:
 
 action:
   - choose:
-      # AKTION 1: FENSTER ÖFFNEN (Empfehlung - wird nur 1x gesendet, solange helper_is_on)
+      # AKTION 1: FENSTER ÖFFNEN
       - conditions:
           - condition: template
             value_template: >
@@ -346,7 +341,7 @@ action:
                     data:
                       message: "{{ message_ventilate }}"
 
-      # AKTION 2: FENSTER SCHLIESSEN (Lüftungsziel erreicht & Fenster ist tatsächlich offen)
+      # AKTION 2: FENSTER SCHLIESSEN
       - conditions:
           - condition: template
             value_template: "{{ should_close and helper_is_on and window_is_open }}"
@@ -380,7 +375,7 @@ action:
                     data:
                       message: "{{ message_close }}"
 
-      # AKTION 3: AUSKÜHLSCHUTZ (Fenster steht bei kühlem Wetter zu lange offen)
+      # AKTION 3: AUSKÜHLSCHUTZ
       - conditions:
           - condition: trigger
             id: timer
@@ -412,18 +407,18 @@ action:
                     data:
                       message: "{{ message_open_too_long }}"
 
-      # AKTION 4: MANUELLES SCHLIESSEN (Nur wenn der Fenster-Sensor aktiv auf geschlossen wechselt)
+      # AKTION 4: MANUELLES SCHLIESSEN
       - conditions:
           - condition: trigger
-            id: window_closed
+            id: window
           - condition: template
-            value_template: "{{ helper_is_on }}"
+            value_template: "{{ helper_is_on and window_is_closed }}"
         sequence:
           - action: input_boolean.turn_off
             target:
               entity_id: !input state_helper
 
-      # AKTION 5: STUMMER RESET (Falls Fenster gar nicht geöffnet wurde, Werte aber wieder okay sind)
+      # AKTION 5: STUMMER RESET
       - conditions:
           - condition: template
             value_template: "{{ helper_is_on and window_is_closed and should_close }}"
