@@ -1,5 +1,5 @@
 blueprint:
-  name: Dynamische Lüftung (AH, r.F., Auskühlschutz & TTS v4.4)
+  name: Dynamische Lüftung (AH, r.F., Auskühlschutz & TTS v4.5)
   description: >
     Berechnet die absolute Feuchtigkeit (AH) nach der Magnus-Formel und empfiehlt 
     Stoßlüften erst bei ausreichend hoher relativer Innenfeuchte. Enthält einen 
@@ -203,13 +203,17 @@ blueprint:
       name: Nachricht bei Auskühlschutz
       default: 'Auskühlschutz: Das Fenster im {{ room_name }} ist seit über {{ open_timer_minutes }} Minuten offen. Bitte schließen!'
 
+trigger_variables:
+  window_sensor_trigger: !input window_state_sensor
+
 trigger:
   - platform: time_pattern
     minutes: /5
     id: timer
-  - platform: state
-    entity_id: !input window_state_sensor
-    id: window
+  - platform: template
+    value_template: >
+      {{ window_sensor_trigger != '' and is_state(window_sensor_trigger, 'off') }}
+    id: window_closed
 
 condition:
   - condition: template
@@ -255,7 +259,7 @@ variables:
     {{ 216.7 * ((rh_in / 100) * (6.112 * (e_const ** ((17.62 * temp_in) / (243.12 + temp_in))))) / (273.15 + temp_in) }}
   af_out: >
     {{ 216.7 * ((rh_out / 100) * (6.112 * (e_const ** ((17.62 * temp_out) / (243.12 + temp_out))))) / (273.15 + temp_out) }}
-  
+
   delta_af: "{{ af_in - af_out }}"
 
   should_open: >
@@ -273,7 +277,7 @@ variables:
     {{ window_sensor_entity != '' and (is_state(window_sensor_entity, 'on') or is_state(window_sensor_entity, 'open')) }}
 
   window_open_duration_sec: >
-    {% if window_is_open %}
+    {% if window_is_open and states[window_sensor_entity] is not none %}
       {{ (as_timestamp(now()) - as_timestamp(states[window_sensor_entity].last_changed)) | default(0) }}
     {% else %}
       0
@@ -307,10 +311,10 @@ action:
             value_template: >
               {{ should_open
                  and not helper_is_on
-                 and window_is_closed 
-                 and is_someone_home 
-                 and is_active_time  
-                 and is_not_too_cold  
+                 and window_is_closed
+                 and is_someone_home
+                 and is_active_time
+                 and is_not_too_cold
               }}
         sequence:
           - action: input_boolean.turn_on
@@ -378,10 +382,12 @@ action:
 
       # AKTION 3: AUSKÜHLSCHUTZ (Fenster steht bei kühlem Wetter zu lange offen)
       - conditions:
+          - condition: trigger
+            id: timer
           - condition: template
             value_template: >
               {{ enable_cooling_protection
-                 and window_is_open 
+                 and window_is_open
                  and window_open_duration_sec >= ((open_timer_minutes | float(10)) * 60)
                  and window_open_duration_sec < (((open_timer_minutes | float(10)) * 60) + 300)
                  and (temp_out | float(99)) < 15.0
@@ -406,12 +412,12 @@ action:
                     data:
                       message: "{{ message_open_too_long }}"
 
-      # AKTION 4: MANUELLES SCHLIESSEN (Nur wenn der Fenster-Sensor tatsächlich ausgelöst hat)
+      # AKTION 4: MANUELLES SCHLIESSEN (Nur wenn der Fenster-Sensor aktiv auf geschlossen wechselt)
       - conditions:
           - condition: trigger
-            id: window
+            id: window_closed
           - condition: template
-            value_template: "{{ helper_is_on and window_is_closed }}"
+            value_template: "{{ helper_is_on }}"
         sequence:
           - action: input_boolean.turn_off
             target:
