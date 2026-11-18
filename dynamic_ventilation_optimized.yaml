@@ -331,4 +331,101 @@ action:
 
                         Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ temp_out | round(1) }}°C
 
-                        ΔAH = {{ delta_af | round(1) }} g/m³ (Öffnen ab {{ rh
+                        ΔAH = {{ delta_af | round(1) }} g/m³ (Öffnen ab {{ rh_trigger | round(0) }}% r.F. / ΔAH {{ threshold | round(1) }})
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (tts_service | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ tts_service }}"
+                    target: !input tts_target
+                    data:
+                      message: "{{ message_ventilate }}"
+
+      # AKTION 2: FENSTER SCHLIESSEN
+      - conditions:
+          - condition: template
+            value_template: "{{ should_close and helper_is_on and window_is_open }}"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input state_helper
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (notify_push | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ notify_push }}"
+                    data:
+                      title: "{{ title_close }}"
+                      message: >
+                        {{ message_close }}
+
+                        Innen: {{ rh_in | round(0) }}%, {{ af_in | round(1) }} g/m³ — {{ temp_in | round(1) }}°C
+
+                        Außen: {{ rh_out | round(0) }}%, {{ af_out | round(1) }} g/m³ — {{ temp_out | round(1) }}°C
+
+                        ΔAH = {{ delta_af | round(1) }} g/m³ (Ziel: {{ close_threshold | round(1) }})
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (tts_service | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ tts_service }}"
+                    target: !input tts_target
+                    data:
+                      message: "{{ message_close }}"
+
+      # AKTION 3: AUSKÜHLSCHUTZ
+      - conditions:
+          - condition: trigger
+            id: timer
+          - condition: template
+            value_template: >
+              {{ enable_cooling_protection
+                 and window_is_open
+                 and window_open_duration_sec >= ((open_timer_minutes | float(10)) * 60)
+                 and window_open_duration_sec < (((open_timer_minutes | float(10)) * 60) + 300)
+                 and (temp_out | float(99)) < 15.0
+              }}
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (notify_push | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ notify_push }}"
+                    data:
+                      title: "{{ title_too_long }}"
+                      message: "{{ message_open_too_long }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (tts_service | default('') | string | length) > 0 }}"
+                sequence:
+                  - action: "{{ tts_service }}"
+                    target: !input tts_target
+                    data:
+                      message: "{{ message_open_too_long }}"
+
+      # AKTION 4: MANUELLES SCHLIESSEN
+      - conditions:
+          - condition: trigger
+            id: window
+          - condition: template
+            value_template: "{{ helper_is_on and window_is_closed }}"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input state_helper
+
+      # AKTION 5: STUMMER RESET
+      - conditions:
+          - condition: template
+            value_template: "{{ helper_is_on and window_is_closed and should_close }}"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input state_helper
+
+mode: single
