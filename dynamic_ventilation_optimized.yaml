@@ -5,6 +5,7 @@ blueprint:
     Stoßlüften erst bei ausreichend hoher relativer Innenfeuchte. Enthält einen 
     optionalen Auskühlschutz-Timer für offene Fenster bei Fußbodenheizungssystemen 
     sowie eine getrennte TTS-Steuerung für Dienst und Ziel-Geräte.
+  source_url: https://github.com/Thorsten1982/ha-blueprints/blob/main/dynamic_ventilation_optimized.yaml
   domain: automation
 
   input:
